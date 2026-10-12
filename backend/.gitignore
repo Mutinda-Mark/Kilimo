@@ -1,0 +1,24 @@
+# Environment & secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Huey broker file
+huey.db
+huey.db-*
+
+# Trained model artifacts (Phase 1/2) - usually too large for git
+*.pt
+*.pth
+*.onnx
+
+# VS Code
+.vscode/
+
+# Pytest cache
+.pytest_cache/
