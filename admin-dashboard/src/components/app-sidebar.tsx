@@ -10,6 +10,7 @@ import {
   Leaf,
   Settings,
   Users,
+  ShieldCheck,
 } from "lucide-react"
 
 import {
@@ -26,8 +27,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 
-
-const navigationItems = [
+const workspaceItems = [
   {
     title: "Overview",
     href: "/",
@@ -48,6 +48,9 @@ const navigationItems = [
     href: "/analytics",
     icon: Activity,
   },
+]
+
+const operationsItems = [
   {
     title: "System",
     href: "/system",
@@ -55,111 +58,120 @@ const navigationItems = [
   },
 ]
 
-
 export function AppSidebar() {
   const pathname = usePathname()
+
+  function isActive(href: string) {
+    return href === "/"
+      ? pathname === "/"
+      : pathname.startsWith(href)
+  }
 
   return (
     <Sidebar
       collapsible="icon"
-      variant="inset"
+      variant="sidebar"
+      className="border-r"
     >
-      <SidebarHeader>
-
-        <div className="flex items-center gap-3 px-2 py-3">
-
-          <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-
-            <Leaf className="size-5" />
-
+      <SidebarHeader className="px-3 py-4">
+        <div className="flex items-center gap-3 px-1">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background">
+            <Leaf className="size-4.5" />
           </div>
 
-          <div className="grid flex-1 text-left text-sm leading-tight">
-
-            <span className="truncate font-semibold">
+          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+            <p className="truncate text-sm font-semibold tracking-tight">
               KILIMO
-            </span>
+            </p>
 
-            <span className="truncate text-xs text-muted-foreground">
-              Admin Dashboard
-            </span>
-
+            <p className="truncate text-xs text-muted-foreground">
+              Intelligence Console
+            </p>
           </div>
-
         </div>
-
       </SidebarHeader>
 
-
       <SidebarContent>
-
         <SidebarGroup>
-
           <SidebarGroupLabel>
-            Platform
+            Workspace
           </SidebarGroupLabel>
 
           <SidebarGroupContent>
-
             <SidebarMenu>
+              {workspaceItems.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    render={<Link href={item.href} />}
+                    isActive={isActive(item.href)}
+                    tooltip={item.title}
+                    className="h-9"
+                  >
+                    <item.icon />
 
-              {navigationItems.map(
-                (item) => {
-
-                  const active =
-                    item.href === "/"
-                      ? pathname === "/"
-                      : pathname.startsWith(
-                          item.href
-                        )
-
-                  return (
-                    <SidebarMenuItem
-                      key={item.href}
-                    >
-
-                      <SidebarMenuButton
-                        render={
-                          <Link
-                            href={item.href}
-                          />
-                        }
-                        isActive={active}
-                        tooltip={item.title}
-                      >
-
-                        <item.icon />
-
-                        <span>
-                          {item.title}
-                        </span>
-
-                      </SidebarMenuButton>
-
-                    </SidebarMenuItem>
-                  )
-                }
-              )}
-
+                    <span>
+                      {item.title}
+                    </span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
             </SidebarMenu>
-
           </SidebarGroupContent>
-
         </SidebarGroup>
 
+        <SidebarGroup>
+          <SidebarGroupLabel>
+            Operations
+          </SidebarGroupLabel>
+
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {operationsItems.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    render={<Link href={item.href} />}
+                    isActive={isActive(item.href)}
+                    tooltip={item.title}
+                    className="h-9"
+                  >
+                    <item.icon />
+
+                    <span>
+                      {item.title}
+                    </span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
+      <SidebarFooter className="px-3 pb-3">
+        <div className="rounded-lg border bg-background/80 p-3 group-data-[collapsible=icon]:hidden">
+          <div className="flex items-center gap-2">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+              <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+            </span>
 
-      <SidebarFooter>
+            <span className="text-xs font-medium">
+              System operational
+            </span>
+          </div>
 
-        <div className="px-2 py-2 text-xs text-muted-foreground">
-          KILIMO v0.5
+          <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <ShieldCheck className="size-3" />
+            Protected administration
+          </div>
         </div>
 
+        <div className="mt-2 px-1 text-[11px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+          KILIMO v0.5
+        </div>
       </SidebarFooter>
 
       <SidebarRail />
-
     </Sidebar>
   )
 }
