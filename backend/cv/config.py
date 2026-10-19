@@ -87,6 +87,11 @@ WEIGHTS_DIR = CV_DIR / "weights"
 
 DEFAULT_WEIGHTS_PATH = WEIGHTS_DIR / "best_model.pt"
 
+SUBJECT_VALIDATOR_WEIGHTS_PATH = (
+    WEIGHTS_DIR
+    / "tomato_subject_validator.pt"
+)
+
 # ── Image quality settings ───────────────────────────────────────────────────
 #
 # These are initial operational thresholds for the Sprint III image-quality
