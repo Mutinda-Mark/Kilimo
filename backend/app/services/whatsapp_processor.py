@@ -340,20 +340,36 @@ class WhatsAppProcessor:
 
         try:
 
-            image = Image.open(
+            with Image.open(
                 BytesIO(
                     media.content
                 )
-            ).convert(
-                "RGB"
+            ) as decoded_image:
+
+                # Force the image to be decoded now so corrupt
+                # image data fails before the inference pipeline.
+                decoded_image.load()
+
+                image = decoded_image.convert(
+                    "RGB"
+                )
+
+        except (
+            UnidentifiedImageError,
+            OSError,
+            ValueError,
+        ):
+
+            await self.whatsapp_service.send_text_message(
+                to=sender,
+                text=(
+                    "I couldn't read this image. "
+                    "Please send a valid JPEG, PNG, or WebP "
+                    "photograph of the affected tomato leaf."
+                ),
             )
 
-        except UnidentifiedImageError as exc:
-
-            raise ValueError(
-                "Downloaded WhatsApp media is "
-                "not a valid image."
-            ) from exc
+            return
 
         # -----------------------------------------------------
         # Run shared KILIMO image pipeline
@@ -364,23 +380,74 @@ class WhatsAppProcessor:
                 image=image,
                 phone_number=sender,
 
-                # Caption acts as optional farmer question.
                 question=(
                     caption
                     if caption
                     else None
                 ),
 
-                # Always store a clean image-history record.
-                #
-                # If there is a caption, process_image() will
-                # separately save it as a text message.
                 image_history_content=(
-                    "Farmer uploaded a tomato leaf image."
+                    "Farmer uploaded an image for assessment."
                 ),
+
                 source="whatsapp",
+
+                file_size_bytes=media.file_size,
+
+                mime_type=(
+                    media.mime_type
+                    or mime_type
+                    or None
+                ),
             )
         )
+
+        # -----------------------------------------------------
+        # Image rejected by quality gate
+        # -----------------------------------------------------
+
+        if result.get("status") == "rejected":
+
+            quality = (
+                result.get("quality")
+                or {}
+            )
+
+            print(
+                "\n========== IMAGE QUALITY REJECTED =========="
+            )
+
+            print(
+                "Reason:",
+                quality.get("reason"),
+            )
+
+            print(
+                "Blur score:",
+                quality.get("blur_score"),
+            )
+
+            print(
+                "Brightness score:",
+                quality.get("brightness_score"),
+            )
+
+            print(
+                "Dimensions:",
+                f"{quality.get('width')}x"
+                f"{quality.get('height')}",
+            )
+
+            print(
+                "============================================\n"
+            )
+
+            await self.whatsapp_service.send_text_message(
+                to=sender,
+                text=result["response"],
+            )
+
+            return
 
         prediction = result["prediction"]
         severity = result["severity"]

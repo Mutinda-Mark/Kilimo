@@ -4,27 +4,24 @@ from PIL import Image
 from fastapi.testclient import TestClient
 
 import app.main as main
+from tests.image_test_utils import create_valid_test_image_bytes
 
 
 def create_test_image() -> bytes:
     """
-    Create a simple RGB image for API testing.
+    Create a technically valid synthetic JPEG image for API tests.
+
+    The image contains sufficient edge detail to pass the
+    Sprint III image-quality gate.
     """
 
-    image = Image.new(
-        "RGB",
-        (224, 224),
-        color=(120, 180, 80),
+    from tests.image_test_utils import (
+        create_valid_test_image_bytes,
     )
 
-    buffer = BytesIO()
-
-    image.save(
-        buffer,
-        format="PNG",
+    return create_valid_test_image_bytes(
+        image_format="JPEG"
     )
-
-    return buffer.getvalue()
 
 
 def test_predict_returns_gemini_response(monkeypatch):

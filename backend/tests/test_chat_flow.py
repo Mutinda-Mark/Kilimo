@@ -16,18 +16,18 @@ from app.main import (
 PHONE_NUMBER = "254700000001"
 
 
-def make_test_image():
-    image = Image.new(
-        "RGB",
-        (224, 224),
-        color="green",
+def make_test_image() -> bytes:
+    """
+    Create a quality-gate-compatible PNG for chat-flow tests.
+    """
+
+    from tests.image_test_utils import (
+        create_valid_test_image_bytes,
     )
 
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    buffer.seek(0)
-
-    return buffer.read()
+    return create_valid_test_image_bytes(
+        image_format="PNG"
+    )
 
 
 async def cleanup_test_data():

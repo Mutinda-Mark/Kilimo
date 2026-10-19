@@ -25,6 +25,7 @@ from PIL import Image
 
 from app.services.session_service import SessionService
 from app.services.assessment_service import AssessmentService
+from cv.image_quality import evaluate_image_quality
 from cv.assessor import TomatoAssessor
 from nlp.advisory import AdvisoryEngine
 from nlp.responder import AdvisoryResponder
@@ -54,6 +55,8 @@ class ImageAnalysisService:
         question: str | None = None,
         image_history_content: str | None = None,
         source: str = "api",
+        file_size_bytes: int | None = None,
+        mime_type: str | None = None,
     ) -> dict[str, Any]:
         """
         Run the complete tomato image assessment pipeline.
@@ -126,6 +129,66 @@ class ImageAnalysisService:
 
         # =====================================================
         # 3. Computer vision assessment
+        # =====================================================
+
+                # =====================================================
+        # 3. Image-quality validation
+        # =====================================================
+
+        quality_result = evaluate_image_quality(
+            image,
+            file_size_bytes=file_size_bytes,
+            mime_type=mime_type,
+        )
+
+        quality_data = (
+            quality_result.to_dict()
+        )
+
+        if not quality_result.accepted:
+
+            rejection_message = (
+                quality_result.message
+            )
+
+            # -------------------------------------------------
+            # Save rejection feedback into conversation history
+            # -------------------------------------------------
+
+            if normalized_phone is not None:
+
+                await self.session_service.save_message(
+                    normalized_phone,
+                    role="system",
+                    message_type="text",
+                    content=rejection_message,
+                )
+
+            # -------------------------------------------------
+            # IMPORTANT:
+            # Return before TomatoAssessor is called.
+            # -------------------------------------------------
+
+            return {
+                "status": "rejected",
+                "quality": quality_data,
+                "prediction": None,
+                "severity": None,
+                "advisory": None,
+                "response": rejection_message,
+                "assessment_id": None,
+                "session": {
+                    "phone_number":
+                        normalized_phone,
+
+                    "enabled":
+                        normalized_phone
+                        is not None,
+                },
+            }
+
+        # =====================================================
+        # 4. Computer vision assessment
         # =====================================================
 
         assessment = self.assessor.assess(
