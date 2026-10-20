@@ -1,7 +1,9 @@
+import json
+
 from contextlib import asynccontextmanager
 from io import BytesIO
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Query, Request, BackgroundTasks
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request, BackgroundTasks
 from pydantic import BaseModel
 from PIL import Image, UnidentifiedImageError
 
@@ -14,10 +16,16 @@ from app.services.image_analysis_service import ImageAnalysisService
 from app.services.whatsapp_event_service import WhatsAppEventService
 from app.services.assessment_service import AssessmentService
 from app.services.whatsapp_processor import WhatsAppProcessor
-from app.whatsapp.webhook import verify_webhook, extract_messages, extract_statuses
+from app.whatsapp.webhook import (
+    extract_messages,
+    extract_statuses,
+    verify_webhook,
+    verify_webhook_signature,
+)
 from app.whatsapp.service import WhatsAppService
 from app.services.whatsapp_batch_service import WhatsAppBatchService
 from cv.assessor import TomatoAssessor
+from cv.config import MAX_IMAGE_FILE_SIZE_BYTES
 from cv.subject_validator import TomatoSubjectValidator
 from nlp.advisory import AdvisoryEngine
 from nlp.responder import AdvisoryResponder
@@ -43,9 +51,7 @@ image_analysis_service = ImageAnalysisService(
     assessment_service=assessment_service,
 )
 whatsapp_event_service = WhatsAppEventService()
-whatsapp_batch_service = WhatsAppBatchService(
-    #whatsapp_service=whatsapp_service,
-)
+whatsapp_batch_service = WhatsAppBatchService()
 
 whatsapp_processor = WhatsAppProcessor(
     whatsapp_service=whatsapp_service,
@@ -120,34 +126,71 @@ async def receive_whatsapp_webhook(
     """
 
     # =========================================================
-    # 1. Parse webhook JSON
+    # 1. Read raw request body
+    # =========================================================
+
+    raw_body = await request.body()
+
+    # =========================================================
+    # 2. Verify Meta webhook signature
+    # =========================================================
+
+    signature_header = request.headers.get(
+        "X-Hub-Signature-256"
+    )
+
+    signature_valid = (
+        verify_webhook_signature(
+            raw_body=raw_body,
+            signature_header=signature_header,
+            app_secret=settings.whatsapp_app_secret,
+        )
+    )
+
+    if not signature_valid:
+
+        print(
+            "[WhatsApp] Rejected webhook with invalid "
+            "or missing signature."
+        )
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid webhook signature.",
+        )
+
+    # =========================================================
+    # 3. Parse authenticated JSON payload
     # =========================================================
 
     try:
 
-        payload = await request.json()
+        payload = json.loads(
+            raw_body
+        )
 
-    except Exception as exc:
+    except (
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+    ) as exc:
 
         raise HTTPException(
             status_code=400,
             detail="Invalid JSON payload.",
         ) from exc
 
-    print(
-        "\n========== WHATSAPP RAW WEBHOOK =========="
-    )
+    if not isinstance(
+        payload,
+        dict,
+    ):
 
-    print(
-        payload
-    )
-
-    print(
-        "==========================================\n"
-    )
+        raise HTTPException(
+            status_code=400,
+            detail="Webhook payload must be a JSON object.",
+        )
 
     # =========================================================
-    # 2. Extract events
+    # 4. Extract events
     # =========================================================
 
     messages = extract_messages(
@@ -159,7 +202,7 @@ async def receive_whatsapp_webhook(
     )
 
     # =========================================================
-    # 3. Log outbound delivery statuses
+    # 5. Log outbound delivery statuses
     # =========================================================
 
     if statuses:
@@ -205,7 +248,7 @@ async def receive_whatsapp_webhook(
         )
 
     # =========================================================
-    # 4. Claim and schedule incoming farmer messages
+    # 6 . Claim and schedule incoming farmer messages
     # =========================================================
 
     scheduled_count = 0
@@ -277,7 +320,7 @@ async def receive_whatsapp_webhook(
         )
 
     # =========================================================
-    # 5. Return quickly to Meta
+    # 7. Return quickly to Meta
     # =========================================================
 
     return {
@@ -286,20 +329,6 @@ async def receive_whatsapp_webhook(
         "scheduled_count": scheduled_count,
         "duplicate_count": duplicate_count,
         "status_count": len(statuses),
-    }
-
-@app.post("/test-whatsapp-send")
-async def test_whatsapp_send(
-    phone_number: str,
-):
-    result = await whatsapp_service.send_text_message(
-        to=phone_number,
-        text="Hello from KILIMO 🌱",
-    )
-
-    return {
-        "status": "sent",
-        "result": result,
     }
 
 @app.get("/")
@@ -365,12 +394,26 @@ async def predict(
     # =========================================================
 
     try:
-        image_bytes = await file.read()
+        image_bytes = await file.read(
+            MAX_IMAGE_FILE_SIZE_BYTES + 1
+        )
 
         if not image_bytes:
             raise HTTPException(
                 status_code=400,
                 detail="Uploaded image is empty.",
+            )
+
+        if (
+            len(image_bytes)
+            > MAX_IMAGE_FILE_SIZE_BYTES
+        ):
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    "Uploaded image exceeds the "
+                    "maximum allowed size of 8 MB."
+                ),
             )
 
         image = Image.open(
@@ -415,6 +458,10 @@ async def predict(
                     or "Uploaded tomato leaf image"
                 ),
                 source="api",
+                file_size_bytes=len(
+                    image_bytes
+                ),
+                mime_type=file.content_type,
             )
         )
 
@@ -507,37 +554,3 @@ async def chat(request: ChatRequest):
                 "Unable to process chat message."
             ),
         ) from exc
-# =============================================================
-# Conversation history
-# =============================================================
-
-@app.get("/sessions/{phone_number}/history")
-async def get_session_history(
-    phone_number: str,
-    limit: int = Query(default=20, ge=1, le=100),
-):
-    try:
-        normalized_phone = phone_number.strip()
-
-        if not normalized_phone:
-            raise ValueError("Phone number cannot be empty.")
-
-        history = await session_service.get_history(
-            normalized_phone,
-            limit=limit,
-        )
-
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Could not retrieve conversation history: {exc}",
-        ) from exc
-
-    return {
-        "phone_number": normalized_phone,
-        "count": len(history),
-        "history": history,
-    }

@@ -11,10 +11,15 @@ from app.db import get_pool
 from app.main import (
     app,
     image_analysis_service,
+    settings,
 )
 
 
 TEST_PHONE = "254700000003"
+
+TEST_ADMIN_TOKEN = (
+    "test-admin-api-token"
+)
 
 
 def make_test_image() -> bytes:
@@ -76,6 +81,11 @@ async def test_complete_session_flow(
     monkeypatch,
     supported_subject,
 ):
+    monkeypatch.setattr(
+        settings,
+        "admin_api_token",
+        TEST_ADMIN_TOKEN,
+    )
     # ---------------------------------------------------------
     # Fake CV assessment
     # ---------------------------------------------------------
@@ -258,7 +268,12 @@ async def test_complete_session_flow(
         # -----------------------------------------------------
 
         history_response = await client.get(
-            f"/sessions/{TEST_PHONE}/history"
+            f"/admin/sessions/{TEST_PHONE}/history",
+            headers = {
+                "Authorization": (
+                    f"Bearer {TEST_ADMIN_TOKEN}"
+                )
+            }
         )
 
         assert (

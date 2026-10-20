@@ -10,10 +10,15 @@ from app.main import (
     app,
     chat_service,
     image_analysis_service,
+    settings,
 )
 
 
 PHONE_NUMBER = "254700000001"
+
+TEST_ADMIN_TOKEN = (
+    "test-admin-api-token"
+)
 
 
 def make_test_image() -> bytes:
@@ -75,6 +80,11 @@ async def test_complete_chat_flow(
     monkeypatch,
     supported_subject,
 ):
+    monkeypatch.setattr(
+        settings,
+        "admin_api_token",
+        TEST_ADMIN_TOKEN,
+    )
     """
     Test the complete farmer conversation flow:
 
@@ -370,7 +380,12 @@ async def test_complete_chat_flow(
         # =====================================================
 
         response = await client.get(
-            f"/sessions/{PHONE_NUMBER}/history"
+            f"/admin/sessions/{PHONE_NUMBER}/history",
+            headers = {
+                "Authorization": (
+                    f"Bearer {TEST_ADMIN_TOKEN}"
+                )
+            }
         )
 
         assert response.status_code == 200
