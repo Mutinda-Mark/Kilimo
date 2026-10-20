@@ -96,7 +96,7 @@ def test_health_endpoint():
 # Prediction endpoint
 # ---------------------------------------------------------------------------
 
-def test_predict_valid_image():
+def test_predict_valid_image(supported_subject):
     """POST /predict should accept an image and return prediction, severity and advisory data."""
 
     image_bytes = create_test_image()
@@ -169,7 +169,7 @@ def test_predict_valid_image():
 # Prediction probability validation
 # ---------------------------------------------------------------------------
 
-def test_predict_probabilities_sum_to_one():
+def test_predict_probabilities_sum_to_one(supported_subject):
     """Prediction class probabilities should sum approximately to 1."""
 
     image_bytes = create_test_image()

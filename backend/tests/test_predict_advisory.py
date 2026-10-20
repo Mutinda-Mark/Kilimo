@@ -24,7 +24,7 @@ def create_test_image() -> bytes:
     )
 
 
-def test_predict_returns_gemini_response(monkeypatch):
+def test_predict_returns_gemini_response(monkeypatch, supported_subject):
     """
     Verify that /predict returns the structured assessment
     together with the natural-language advisory response.
@@ -131,6 +131,7 @@ def test_predict_returns_gemini_response(monkeypatch):
 
 def test_predict_passes_farmer_question_to_responder(
     monkeypatch,
+    supported_subject,
 ):
     """
     Verify that an optional farmer question reaches
@@ -224,7 +225,7 @@ def test_predict_passes_farmer_question_to_responder(
         == "Farmer-friendly advisory."
     )
 
-def test_predict_passes_session_context_to_responder(monkeypatch):
+def test_predict_passes_session_context_to_responder(monkeypatch, supported_subject):
     """
     Verify that a farmer's previous conversation and session context
     are retrieved and passed to AdvisoryResponder.

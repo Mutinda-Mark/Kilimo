@@ -126,6 +126,7 @@ def fake_advisory_generate(
 @pytest.mark.asyncio
 async def test_predict_handles_cv_failure(
     monkeypatch,
+    supported_subject,
 ):
     """
     A CV exception should not expose internal details.
@@ -176,6 +177,7 @@ async def test_predict_handles_cv_failure(
 @pytest.mark.asyncio
 async def test_predict_handles_advisory_failure(
     monkeypatch,
+    supported_subject,
 ):
     """
     Advisory-generation failures should return the same
@@ -238,6 +240,7 @@ async def test_predict_handles_advisory_failure(
 @pytest.mark.asyncio
 async def test_predict_handles_responder_failure(
     monkeypatch,
+    supported_subject,
 ):
     """
     Natural-language generation failure should not leak
@@ -306,6 +309,7 @@ async def test_predict_handles_responder_failure(
 @pytest.mark.asyncio
 async def test_chat_handles_responder_failure(
     monkeypatch,
+    supported_subject,
 ):
     """
     Chat responder failure should return the stable public

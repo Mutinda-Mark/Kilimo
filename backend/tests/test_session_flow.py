@@ -74,6 +74,7 @@ async def clean_session_flow_data():
 @pytest.mark.asyncio
 async def test_complete_session_flow(
     monkeypatch,
+    supported_subject,
 ):
     # ---------------------------------------------------------
     # Fake CV assessment

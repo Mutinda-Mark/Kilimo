@@ -202,3 +202,12 @@ credentials.json
 service-account*.json
 secrets.json
 token.json
+
+# Subject-validator datasets
+subject_dataset/
+backend/subject_dataset/
+unsupported_source/
+backend/unsupported_source/
+
+# Subject-validator model output
+backend/cv/weights/tomato_subject_validator.pt

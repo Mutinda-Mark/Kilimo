@@ -92,6 +92,10 @@ SUBJECT_VALIDATOR_WEIGHTS_PATH = (
     / "tomato_subject_validator.pt"
 )
 
+SUBJECT_UNSUPPORTED_THRESHOLD: float = 0.20
+
+SUBJECT_SUPPORTED_THRESHOLD: float = 0.80
+
 # ── Image quality settings ───────────────────────────────────────────────────
 #
 # These are initial operational thresholds for the Sprint III image-quality

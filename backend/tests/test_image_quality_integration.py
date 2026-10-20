@@ -2,7 +2,8 @@
 Integration tests for the Sprint III image-quality gate.
 
 These tests verify that image-quality rejection occurs before
-disease inference and downstream advisory processing.
+subject validation, disease inference, and downstream advisory
+processing.
 """
 
 from unittest.mock import AsyncMock, Mock
@@ -15,25 +16,23 @@ from app.services.image_analysis_service import (
 )
 
 
-@pytest.mark.asyncio
-async def test_rejected_image_does_not_call_assessor():
+def build_service():
     """
-    A technically unsuitable image must never reach the disease
-    classifier.
-
-    This is a core Sprint III safety requirement.
+    Build ImageAnalysisService using mocked downstream
+    dependencies.
     """
-
-    # ---------------------------------------------------------
-    # Dependencies
-    # ---------------------------------------------------------
 
     assessor = Mock()
+
+    subject_validator = Mock()
 
     advisory_engine = Mock()
 
     advisory_responder = Mock()
-    advisory_responder.generate = AsyncMock()
+
+    advisory_responder.generate = (
+        AsyncMock()
+    )
 
     session_service = Mock()
 
@@ -63,25 +62,75 @@ async def test_rejected_image_does_not_call_assessor():
         AsyncMock()
     )
 
-    # ---------------------------------------------------------
-    # Service under test
-    # ---------------------------------------------------------
-
     service = ImageAnalysisService(
         assessor=assessor,
         advisory_engine=advisory_engine,
         advisory_responder=advisory_responder,
         session_service=session_service,
         assessment_service=assessment_service,
+        subject_validator=subject_validator,
     )
 
-    # ---------------------------------------------------------
-    # Featureless image
-    #
-    # Technically valid PIL image but with effectively no
-    # useful edge detail.
-    # ---------------------------------------------------------
+    return {
+        "service":
+            service,
 
+        "assessor":
+            assessor,
+
+        "subject_validator":
+            subject_validator,
+
+        "advisory_engine":
+            advisory_engine,
+
+        "advisory_responder":
+            advisory_responder,
+
+        "session_service":
+            session_service,
+
+        "assessment_service":
+            assessment_service,
+    }
+
+
+@pytest.mark.asyncio
+async def test_rejected_image_does_not_call_assessor():
+    """
+    A technically unsuitable image must never reach either
+    the subject validator or disease classifier.
+    """
+
+    dependencies = build_service()
+
+    service = dependencies[
+        "service"
+    ]
+
+    assessor = dependencies[
+        "assessor"
+    ]
+
+    subject_validator = dependencies[
+        "subject_validator"
+    ]
+
+    advisory_engine = dependencies[
+        "advisory_engine"
+    ]
+
+    advisory_responder = dependencies[
+        "advisory_responder"
+    ]
+
+    assessment_service = dependencies[
+        "assessment_service"
+    ]
+
+    # Featureless image:
+    # technically valid PIL input, but effectively no useful
+    # edge detail.
     image = Image.new(
         "RGB",
         (
@@ -95,10 +144,6 @@ async def test_rejected_image_does_not_call_assessor():
         ),
     )
 
-    # ---------------------------------------------------------
-    # Run
-    # ---------------------------------------------------------
-
     result = await service.process_image(
         image=image,
         phone_number=None,
@@ -107,86 +152,54 @@ async def test_rejected_image_does_not_call_assessor():
         file_size_bytes=100_000,
     )
 
-    # ---------------------------------------------------------
-    # Quality decision
-    # ---------------------------------------------------------
+    assert (
+        result["status"]
+        == "rejected"
+    )
 
-    assert result["status"] == "rejected"
+    assert (
+        result["quality"]["reason"]
+        == "blur"
+    )
 
-    assert result["quality"][
-        "reason"
-    ] == "blur"
+    assert (
+        result["subject_validation"]
+        is None
+    )
 
     assert result["prediction"] is None
     assert result["severity"] is None
     assert result["assessment_id"] is None
 
-    # ---------------------------------------------------------
-    # Critical safety assertion:
-    # rejected input never reaches disease inference.
-    # ---------------------------------------------------------
+    # Quality rejection occurs before subject validation.
+    subject_validator.validate.assert_not_called()
 
+    # It also occurs before disease inference.
     assessor.assess.assert_not_called()
 
-    # No assessment should be persisted.
     assessment_service.save_assessment.assert_not_awaited()
 
-    # No advisory should be generated.
     advisory_engine.generate.assert_not_called()
 
-    # Gemini/RAG responder must not run either.
     advisory_responder.generate.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_rejected_image_returns_actionable_message():
     """
-    A rejected image should produce actionable feedback rather
-    than a generic server error.
+    A rejected image should produce actionable feedback
+    rather than a generic server error.
     """
 
-    assessor = Mock()
+    dependencies = build_service()
 
-    advisory_engine = Mock()
+    service = dependencies[
+        "service"
+    ]
 
-    advisory_responder = Mock()
-    advisory_responder.generate = AsyncMock()
-
-    session_service = Mock()
-
-    session_service.get_or_create_session = (
-        AsyncMock()
-    )
-
-    session_service.save_message = (
-        AsyncMock()
-    )
-
-    session_service.get_session = (
-        AsyncMock()
-    )
-
-    session_service.get_history = (
-        AsyncMock()
-    )
-
-    session_service.update_session = (
-        AsyncMock()
-    )
-
-    assessment_service = Mock()
-
-    assessment_service.save_assessment = (
-        AsyncMock()
-    )
-
-    service = ImageAnalysisService(
-        assessor=assessor,
-        advisory_engine=advisory_engine,
-        advisory_responder=advisory_responder,
-        session_service=session_service,
-        assessment_service=assessment_service,
-    )
+    subject_validator = dependencies[
+        "subject_validator"
+    ]
 
     image = Image.new(
         "RGB",
@@ -214,7 +227,10 @@ async def test_rejected_image_returns_actionable_message():
         or ""
     ).lower()
 
-    assert result["status"] == "rejected"
+    assert (
+        result["status"]
+        == "rejected"
+    )
 
     assert "blurry" in response
 
@@ -222,3 +238,5 @@ async def test_rejected_image_returns_actionable_message():
         "retake" in response
         or "focus" in response
     )
+
+    subject_validator.validate.assert_not_called()

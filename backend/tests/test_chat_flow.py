@@ -73,6 +73,7 @@ async def clean_chat_flow_data():
 @pytest.mark.asyncio
 async def test_complete_chat_flow(
     monkeypatch,
+    supported_subject,
 ):
     """
     Test the complete farmer conversation flow:

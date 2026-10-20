@@ -1,21 +1,40 @@
 """
 Tomato-subject validation for KILIMO.
 
-The subject validator determines whether a technically valid image
-appears suitable for the tomato-disease classifier.
+This module determines whether a technically usable image appears
+appropriate for the tomato disease classifier.
 
-This is separate from image-quality validation:
+The subject validator is intentionally separate from:
 
-    image quality
-        -> "Can this image be analysed technically?"
+    1. technical image-quality validation
+    2. tomato disease classification
 
+Pipeline:
+
+    technical quality
+        ↓
     subject validation
-        -> "Does this image appear to contain a supported tomato leaf?"
+        ↓
+    disease classification
 
-The disease classifier must only run after both checks succeed.
+The subject validator uses a MobileNetV3-Small binary classifier.
 
-A dedicated binary model is used rather than relying on the maximum
-softmax score of the closed-set disease classifier.
+Binary interpretation:
+
+    sigmoid score near 0
+        -> unsupported image
+
+    sigmoid score near 1
+        -> supported tomato leaf
+
+The production application applies a three-state policy:
+
+    unsupported
+    uncertain / abstain
+    supported
+
+The thresholds were frozen using validation data before the held-out
+test set was evaluated.
 """
 
 from __future__ import annotations
@@ -31,6 +50,8 @@ from torchvision import models, transforms
 
 from cv.config import (
     IMAGE_SIZE,
+    SUBJECT_SUPPORTED_THRESHOLD,
+    SUBJECT_UNSUPPORTED_THRESHOLD,
     SUBJECT_VALIDATOR_WEIGHTS_PATH,
 )
 
@@ -49,43 +70,47 @@ class SubjectValidationResult:
 
     message: str
 
-    tomato_score: float | None
+    tomato_score: float
+
+    unsupported_threshold: float
+
+    supported_threshold: float
 
     model_available: bool
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(
+        self,
+    ) -> dict[str, Any]:
         """
-        Convert result into a JSON-compatible dictionary.
+        Convert the result into a JSON-compatible dictionary.
         """
 
-        return asdict(self)
+        return asdict(
+            self
+        )
 
 
 class TomatoSubjectValidator:
     """
-    Determine whether an image appears to contain a supported
-    tomato leaf.
+    Validate whether an image appears to contain a supported
+    tomato leaf before disease inference.
 
-    The model is loaded lazily.
-
-    Expected checkpoint:
-        cv/weights/tomato_subject_validator.pt
-
-    The checkpoint represents a binary classifier:
-
-        0 -> unsupported image
-        1 -> supported tomato leaf
-
-    Thresholds must be selected during evaluation rather than
-    treated as universal confidence boundaries.
+    The trained MobileNetV3-Small model is loaded lazily and
+    reused for subsequent requests.
     """
 
     def __init__(
         self,
-        weights_path: str | Path = SUBJECT_VALIDATOR_WEIGHTS_PATH,
+        weights_path: str | Path = (
+            SUBJECT_VALIDATOR_WEIGHTS_PATH
+        ),
         *,
-        supported_threshold: float = 0.70,
-        unsupported_threshold: float = 0.30,
+        supported_threshold: float = (
+            SUBJECT_SUPPORTED_THRESHOLD
+        ),
+        unsupported_threshold: float = (
+            SUBJECT_UNSUPPORTED_THRESHOLD
+        ),
         device: str | None = None,
     ) -> None:
 
@@ -128,10 +153,13 @@ class TomatoSubjectValidator:
                 transforms.Resize(
                     256
                 ),
+
                 transforms.CenterCrop(
                     IMAGE_SIZE
                 ),
+
                 transforms.ToTensor(),
+
                 transforms.Normalize(
                     mean=[
                         0.485,
@@ -147,19 +175,23 @@ class TomatoSubjectValidator:
             ]
         )
 
-    def is_ready(self) -> bool:
+    def is_ready(
+        self,
+    ) -> bool:
         """
-        Return True when the trained subject-validation
-        checkpoint exists.
+        Return True when the trained checkpoint exists.
         """
 
         return self.weights_path.exists()
 
+    @staticmethod
     def _build_model(
-        self,
     ) -> nn.Module:
         """
-        Construct the binary MobileNetV3-Small architecture.
+        Build the production MobileNetV3-Small architecture.
+
+        The model has one output logit for binary subject
+        validation.
         """
 
         model = (
@@ -169,12 +201,15 @@ class TomatoSubjectValidator:
         )
 
         in_features = (
-            model.classifier[-1].in_features
+            model.classifier[-1]
+            .in_features
         )
 
-        model.classifier[-1] = nn.Linear(
-            in_features,
-            1,
+        model.classifier[-1] = (
+            nn.Linear(
+                in_features,
+                1,
+            )
         )
 
         return model
@@ -183,7 +218,7 @@ class TomatoSubjectValidator:
         self,
     ) -> nn.Module:
         """
-        Lazily load the trained subject-validation model.
+        Load the subject-validation model lazily.
         """
 
         if self._model is not None:
@@ -192,8 +227,9 @@ class TomatoSubjectValidator:
         if not self.weights_path.exists():
 
             raise FileNotFoundError(
-                "Tomato subject-validator weights were not "
-                f"found at '{self.weights_path}'."
+                "Tomato subject-validator weights "
+                "were not found at "
+                f"'{self.weights_path}'."
             )
 
         model = self._build_model()
@@ -203,10 +239,14 @@ class TomatoSubjectValidator:
             map_location=self.device,
         )
 
-        if isinstance(
-            checkpoint,
-            dict,
-        ) and "model_state_dict" in checkpoint:
+        if (
+            isinstance(
+                checkpoint,
+                dict,
+            )
+            and "model_state_dict"
+            in checkpoint
+        ):
 
             state_dict = checkpoint[
                 "model_state_dict"
@@ -235,8 +275,8 @@ class TomatoSubjectValidator:
         image: Image.Image,
     ) -> SubjectValidationResult:
         """
-        Validate whether an image appears to contain a
-        supported tomato leaf.
+        Determine whether an image is suitable for the
+        tomato disease classifier.
 
         Returns one of:
 
@@ -279,11 +319,11 @@ class TomatoSubjectValidator:
 
         tomato_score = round(
             tomato_score,
-            4,
+            6,
         )
 
         # -----------------------------------------------------
-        # Supported
+        # Supported tomato leaf
         # -----------------------------------------------------
 
         if (
@@ -300,11 +340,17 @@ class TomatoSubjectValidator:
                     "validation check."
                 ),
                 tomato_score=tomato_score,
+                unsupported_threshold=(
+                    self.unsupported_threshold
+                ),
+                supported_threshold=(
+                    self.supported_threshold
+                ),
                 model_available=True,
             )
 
         # -----------------------------------------------------
-        # Unsupported
+        # Clearly unsupported
         # -----------------------------------------------------
 
         if (
@@ -318,11 +364,18 @@ class TomatoSubjectValidator:
                 reason="unsupported_subject",
                 message=(
                     "This image does not appear to contain "
-                    "a supported tomato leaf. Please send "
+                    "a supported tomato leaf. KILIMO currently "
+                    "assesses tomato leaves only. Please send "
                     "a clear close-up photograph of the "
                     "affected tomato leaf."
                 ),
                 tomato_score=tomato_score,
+                unsupported_threshold=(
+                    self.unsupported_threshold
+                ),
+                supported_threshold=(
+                    self.supported_threshold
+                ),
                 model_available=True,
             )
 
@@ -338,9 +391,15 @@ class TomatoSubjectValidator:
                 "I could not confirm that this image is "
                 "suitable for tomato disease assessment. "
                 "Please retake the photo with one tomato "
-                "leaf clearly visible and filling most of "
-                "the image."
+                "leaf clearly visible and filling most "
+                "of the image."
             ),
             tomato_score=tomato_score,
+            unsupported_threshold=(
+                self.unsupported_threshold
+            ),
+            supported_threshold=(
+                self.supported_threshold
+            ),
             model_available=True,
         )

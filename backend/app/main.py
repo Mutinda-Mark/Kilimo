@@ -16,12 +16,15 @@ from app.services.assessment_service import AssessmentService
 from app.services.whatsapp_processor import WhatsAppProcessor
 from app.whatsapp.webhook import verify_webhook, extract_messages, extract_statuses
 from app.whatsapp.service import WhatsAppService
+from app.services.whatsapp_batch_service import WhatsAppBatchService
 from cv.assessor import TomatoAssessor
+from cv.subject_validator import TomatoSubjectValidator
 from nlp.advisory import AdvisoryEngine
 from nlp.responder import AdvisoryResponder
 
 
 assessor = TomatoAssessor()
+subject_validator = TomatoSubjectValidator()
 advisory_engine = AdvisoryEngine()
 advisory_responder = AdvisoryResponder()
 session_service = SessionService()
@@ -33,17 +36,23 @@ chat_service = ChatService(
 whatsapp_service = WhatsAppService()
 image_analysis_service = ImageAnalysisService(
     assessor=assessor,
+    subject_validator=subject_validator,
     advisory_engine=advisory_engine,
     advisory_responder=advisory_responder,
     session_service=session_service,
     assessment_service=assessment_service,
 )
 whatsapp_event_service = WhatsAppEventService()
+whatsapp_batch_service = WhatsAppBatchService(
+    #whatsapp_service=whatsapp_service,
+)
+
 whatsapp_processor = WhatsAppProcessor(
     whatsapp_service=whatsapp_service,
     chat_service=chat_service,
     image_analysis_service=image_analysis_service,
     event_service=whatsapp_event_service,
+    batch_service=whatsapp_batch_service,
 )
 
 @asynccontextmanager
