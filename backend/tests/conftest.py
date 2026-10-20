@@ -3,11 +3,26 @@ Shared pytest fixtures for KILIMO backend tests.
 """
 
 import pytest
+import pytest_asyncio
 
 from cv.subject_validator import (
     SubjectValidationResult,
 )
 
+from app.main import (
+    chat_rate_limiter,
+    predict_rate_limiter,
+)
+
+@pytest_asyncio.fixture(autouse=True)
+async def reset_api_rate_limiters():
+    await predict_rate_limiter.clear()
+    await chat_rate_limiter.clear()
+
+    yield
+
+    await predict_rate_limiter.clear()
+    await chat_rate_limiter.clear()
 
 @pytest.fixture
 def supported_subject(monkeypatch):

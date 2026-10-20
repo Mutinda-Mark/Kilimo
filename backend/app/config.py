@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     environment: str = "development"
     admin_api_token: str = ""
 
+    # --- Public API rate limiting ---
+    predict_rate_limit_requests: int = 10
+    predict_rate_limit_window_seconds: int = 60
+
+    chat_rate_limit_requests: int = 20
+    chat_rate_limit_window_seconds: int = 60
+
     # --- Huey background task queue ---
     huey_db_path: str = "huey.db"
 

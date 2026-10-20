@@ -1,11 +1,9 @@
-import json
-
 from contextlib import asynccontextmanager
-from io import BytesIO
-
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request, BackgroundTasks
+from fastapi import HTTPException, Request, status, FastAPI, File, Form, UploadFile, BackgroundTasks
 from pydantic import BaseModel
 from PIL import Image, UnidentifiedImageError
+import json
+from io import BytesIO
 
 from app.config import settings
 from app.db import close_pool, get_pool
@@ -24,6 +22,10 @@ from app.whatsapp.webhook import (
 )
 from app.whatsapp.service import WhatsAppService
 from app.services.whatsapp_batch_service import WhatsAppBatchService
+from app.security.rate_limit import (
+    InMemoryRateLimiter,
+    enforce_rate_limit,
+)
 from cv.assessor import TomatoAssessor
 from cv.config import MAX_IMAGE_FILE_SIZE_BYTES
 from cv.subject_validator import TomatoSubjectValidator
@@ -52,7 +54,23 @@ image_analysis_service = ImageAnalysisService(
 )
 whatsapp_event_service = WhatsAppEventService()
 whatsapp_batch_service = WhatsAppBatchService()
+predict_rate_limiter = InMemoryRateLimiter(
+    limit=(
+        settings.predict_rate_limit_requests
+    ),
+    window_seconds=(
+        settings.predict_rate_limit_window_seconds
+    ),
+)
 
+chat_rate_limiter = InMemoryRateLimiter(
+    limit=(
+        settings.chat_rate_limit_requests
+    ),
+    window_seconds=(
+        settings.chat_rate_limit_window_seconds
+    ),
+)
 whatsapp_processor = WhatsAppProcessor(
     whatsapp_service=whatsapp_service,
     chat_service=chat_service,
@@ -361,10 +379,16 @@ async def health_check():
 
 @app.post("/predict")
 async def predict(
+    request: Request,
     file: UploadFile = File(...),
     question: str | None = Form(default=None),
     phone_number: str | None = Form(default=None),
 ):
+    await enforce_rate_limit(
+        request=request,
+        limiter=predict_rate_limiter,
+        scope="predict",
+    )
     """
     Upload a tomato leaf image and generate a KILIMO advisory.
 
@@ -509,7 +533,7 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, http_request: Request):
     phone_number = (
         request.phone_number or ""
     ).strip()
@@ -517,6 +541,12 @@ async def chat(request: ChatRequest):
     question = (
         request.question or ""
     ).strip()
+
+    await enforce_rate_limit(
+        request=http_request,
+        limiter=chat_rate_limiter,
+        scope="chat",
+    )
 
     if not phone_number:
         raise HTTPException(
