@@ -18,6 +18,9 @@ from app.services.image_analysis_service import ImageAnalysisService
 from app.services.whatsapp_event_service import WhatsAppEventService
 from app.services.assessment_service import AssessmentService
 from app.services.whatsapp_processor import WhatsAppProcessor
+from app.security.public_api import (
+    require_direct_api_access,
+)
 from app.whatsapp.webhook import (
     extract_messages,
     extract_statuses,
@@ -366,17 +369,21 @@ async def predict(
     question: str | None = Form(default=None),
     phone_number: str | None = Form(default=None),
 ):
-    await enforce_rate_limit(
-        request=request,
-        limiter=predict_rate_limiter,
-        scope="predict",
-    )
     """
     Upload a tomato leaf image and generate a KILIMO advisory.
 
     If phone_number is supplied, the assessment is stored in the
     farmer's session and conversation history.
     """
+    require_direct_api_access(
+        settings.environment
+    )
+
+    await enforce_rate_limit(
+        request=request,
+        limiter=predict_rate_limiter,
+        scope="predict",
+    )
 
     # =========================================================
     # 1. Validate uploaded file
@@ -474,9 +481,16 @@ async def predict(
         return result
 
     except ValueError as exc:
+
+        logger.warning(
+            "Image assessment request failed service validation."
+        )
+
         raise HTTPException(
             status_code=400,
-            detail=str(exc),
+            detail=(
+                "Invalid image assessment request."
+            ),
         ) from exc
 
     except FileNotFoundError as exc:
@@ -511,6 +525,9 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 async def chat(request: ChatRequest, http_request: Request):
+    require_direct_api_access(
+        settings.environment
+    )
     phone_number = (
         request.phone_number or ""
     ).strip()
@@ -546,9 +563,16 @@ async def chat(request: ChatRequest, http_request: Request):
         return result
 
     except ValueError as exc:
+
+        logger.warning(
+            "Chat request failed service validation."
+        )
+
         raise HTTPException(
             status_code=400,
-            detail=str(exc),
+            detail=(
+                "Invalid chat request."
+            ),
         ) from exc
 
     except Exception as exc:
