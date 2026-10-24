@@ -79,13 +79,14 @@ def test_health_endpoint():
     data = response.json()
 
     assert "status" in data
-    assert "database" in data
-    assert "environment" in data
 
     assert data["status"] in {
         "ok",
         "degraded",
     }
+
+    assert "database" not in data
+    assert "environment" not in data
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,10 @@ from PIL import Image, UnidentifiedImageError
 import json
 from io import BytesIO
 
-from app.config import settings
+from app.config import (
+    settings,
+    validate_production_settings,
+)
 from app.db import close_pool, get_pool
 from app.admin.router import router as admin_router
 from app.services.session_service import SessionService
@@ -18,6 +21,9 @@ from app.services.image_analysis_service import ImageAnalysisService
 from app.services.whatsapp_event_service import WhatsAppEventService
 from app.services.assessment_service import AssessmentService
 from app.services.whatsapp_processor import WhatsAppProcessor
+from app.security.deployment import (
+    api_documentation_urls,
+)
 from app.security.public_api import (
     require_direct_api_access,
 )
@@ -88,22 +94,39 @@ whatsapp_processor = WhatsAppProcessor(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_production_settings(
+        settings
+    )
+
     try:
         await get_pool()
-    except Exception as exc:
+
+    except Exception:
         logger.error(
-            "Could not connect to database: %s",
-            exc,
+            "Database connection was unavailable during startup."
         )
 
     yield
 
     await close_pool()
-
+is_production = (
+    settings.environment
+    .strip()
+    .lower()
+    == "production"
+)
+documentation_urls = (
+    api_documentation_urls(
+        settings.environment
+    )
+)
 app = FastAPI(
     title="Tomato Disease Advisory Backend",
     version="0.5.0",
     lifespan=lifespan,
+    docs_url=documentation_urls["docs_url"],
+    redoc_url=documentation_urls["redoc_url"],
+    openapi_url=documentation_urls["openapi_url"],
 )
 app.include_router(
     admin_router
@@ -356,9 +379,7 @@ async def health_check():
         db_ok = False
 
     return {
-        "status": "ok" if db_ok else "degraded",
-        "database": "connected" if db_ok else "unreachable",
-        "environment": settings.environment,
+        "status": "ok" if db_ok else "degraded"
     }
 
 

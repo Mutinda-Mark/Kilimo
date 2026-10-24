@@ -53,5 +53,116 @@ class Settings(BaseSettings):
     # --- Huey background task queue ---
     huey_db_path: str = "huey.db"
 
+PRODUCTION_ENVIRONMENTS = frozenset(
+    {
+        "production",
+        "prod",
+    }
+)
+
+KNOWN_ENVIRONMENTS = frozenset(
+    {
+        "development",
+        "dev",
+        "local",
+        "test",
+        "testing",
+        "production",
+        "prod",
+    }
+)
+
+
+def validate_environment_name(
+    settings: Settings,
+) -> None:
+    environment = (
+        settings.environment
+        or ""
+    ).strip().lower()
+
+    if environment not in KNOWN_ENVIRONMENTS:
+        raise RuntimeError(
+            "Invalid application environment."
+        )
+
+
+def missing_production_settings(
+    settings: Settings,
+) -> list[str]:
+    """
+    Return names of required production settings that are empty.
+
+    Secret values are intentionally never included.
+    """
+
+    environment = (
+        settings.environment
+        or ""
+    ).strip().lower()
+
+    if (
+        environment
+        not in PRODUCTION_ENVIRONMENTS
+    ):
+        return []
+
+    required = {
+        "DATABASE_URL":
+            settings.database_url,
+
+        "GEMINI_API_KEY":
+            settings.gemini_api_key,
+
+        "WHATSAPP_ACCESS_TOKEN":
+            settings.whatsapp_access_token,
+
+        "WHATSAPP_PHONE_NUMBER_ID":
+            settings.whatsapp_phone_number_id,
+
+        "WHATSAPP_VERIFY_TOKEN":
+            settings.whatsapp_verify_token,
+
+        "WHATSAPP_APP_SECRET":
+            settings.whatsapp_app_secret,
+
+        "ADMIN_API_TOKEN":
+            settings.admin_api_token,
+    }
+
+    return [
+        name
+        for name, value in required.items()
+        if not (
+            value
+            or ""
+        ).strip()
+    ]
+
+
+def validate_production_settings(
+    settings: Settings,
+) -> None:
+    validate_environment_name(
+        settings
+    )
+
+    missing = (
+        missing_production_settings(
+            settings
+        )
+    )
+
+    if not missing:
+        return
+
+    missing_names = ", ".join(
+        sorted(missing)
+    )
+
+    raise RuntimeError(
+        "Production configuration is incomplete. "
+        f"Missing settings: {missing_names}"
+    )
 
 settings = Settings()
