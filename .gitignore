@@ -211,3 +211,9 @@ backend/unsupported_source/
 
 # Subject-validator model output
 backend/cv/weights/tomato_subject_validator.pt
+
+# Production CV model artifacts tracked with Git LFS
+!backend/cv/weights/
+backend/cv/weights/*
+!backend/cv/weights/best_model.pt
+!backend/cv/weights/tomato_subject_validator.pt

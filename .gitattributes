@@ -1,0 +1,2 @@
+backend/cv/weights/best_model.pt filter=lfs diff=lfs merge=lfs -text
+backend/cv/weights/tomato_subject_validator.pt filter=lfs diff=lfs merge=lfs -text
