@@ -21,6 +21,10 @@ The farmer may also reply DONE to finalize a batch early.
 from __future__ import annotations
 
 import json
+import logging
+
+
+logger = logging.getLogger(__name__)
 from io import BytesIO
 from typing import Any
 
@@ -137,7 +141,7 @@ class WhatsAppProcessor:
 
             else:
 
-                print(
+                logger.warning(
                     "[WhatsApp] Unsupported message type: "
                     f"{message_type}"
                 )
@@ -160,25 +164,22 @@ class WhatsAppProcessor:
 
         except Exception as exc:
 
-            print(
-                "\n"
-                "========== WHATSAPP PROCESSING ERROR "
-                "=========="
+            logger.error(
+                "========== WHATSAPP PROCESSING ERROR =========="
             )
 
-            print(
+            logger.error(
                 f"Message ID: {message_id}"
             )
 
-            print(
+            logger.error(
                 repr(
                     exc
                 )
             )
 
-            print(
-                "===================================="
-                "===============\n"
+            logger.error(
+                "=============================================="
             )
 
             if message_id:
@@ -188,15 +189,14 @@ class WhatsAppProcessor:
                     await self.event_service.mark_failed(
                         message_id=message_id,
                         error_message=str(
-                            exc
+                            "WhatsApp message processing failed"
                         ),
                     )
 
                 except Exception as db_exc:
 
-                    print(
-                        "[WhatsApp] Could not mark "
-                        f"message failed: {db_exc}"
+                    logger.error(
+                        "Could not update failed WhatsApp event state."
                     )
 
             if sender:
@@ -214,9 +214,8 @@ class WhatsAppProcessor:
 
                 except Exception as send_exc:
 
-                    print(
-                        "[WhatsApp] Could not send "
-                        f"fallback response: {send_exc}"
+                    logger.error(
+                        "Could not send WhatsApp fallback response."
                     )
 
     # =========================================================
@@ -239,9 +238,8 @@ class WhatsAppProcessor:
                 "Incoming WhatsApp text message is empty."
             )
 
-        print(
-            f"[WhatsApp] Text from {sender}: "
-            f"{incoming_text}"
+        logger.info(
+            "Processing WhatsApp text message."
         )
 
         # -----------------------------------------------------
@@ -271,18 +269,6 @@ class WhatsAppProcessor:
             "response"
         ]
 
-        print(
-            "\n========== KILIMO RESPONSE =========="
-        )
-
-        print(
-            response_text
-        )
-
-        print(
-            "=====================================\n"
-        )
-
         send_result = (
             await self.whatsapp_service.send_text_message(
                 to=sender,
@@ -290,12 +276,8 @@ class WhatsAppProcessor:
             )
         )
 
-        print(
-            "[WhatsApp] Text response sent:"
-        )
-
-        print(
-            send_result
+        logger.info(
+            "WhatsApp Text response sent successfully."
         )
 
     # =========================================================
@@ -418,41 +400,17 @@ class WhatsAppProcessor:
             == "processing"
         ):
 
-            print(
-                "[WhatsApp] Additional image ignored "
-                "because current batch is processing. "
-                f"Sender: {sender}"
+            logger.info(
+                "Additional WhatsApp image ignored because "
+                "the current batch is already processing."
             )
-
             return
 
-        print(
-            "\n========== WHATSAPP IMAGE =========="
+        logger.info(
+             "Processing WhatsApp image with MIME type %s.",
+            mime_type,
         )
 
-        print(
-            f"Sender: {sender}"
-        )
-
-        print(
-            f"Message ID: {message_id}"
-        )
-
-        print(
-            f"Media ID: {media_id}"
-        )
-
-        print(
-            f"MIME type: {mime_type}"
-        )
-
-        print(
-            f"Caption: {caption}"
-        )
-
-        print(
-            "====================================\n"
-        )
 
         # -----------------------------------------------------
         # Download from Meta
@@ -463,25 +421,10 @@ class WhatsAppProcessor:
                 media_id
             )
         )
-
-        print(
-            "\n========== MEDIA DOWNLOADED =========="
-        )
-
-        print(
-            f"Media ID: {media.media_id}"
-        )
-
-        print(
-            f"MIME type: {media.mime_type}"
-        )
-
-        print(
-            f"Size: {media.file_size} bytes"
-        )
-
-        print(
-            "======================================\n"
+        logger.info(
+            "WhatsApp media downloaded: mime_type=%s, size_bytes=%s",
+            media.mime_type,
+            media.file_size,
         )
 
         # -----------------------------------------------------
@@ -667,7 +610,7 @@ class WhatsAppProcessor:
                 ).lower()
             ):
 
-                print(
+                logger.warning(
                     "[WhatsApp] Additional burst image "
                     "ignored because batch is full or "
                     "already processing."
@@ -730,10 +673,9 @@ class WhatsAppProcessor:
             "image_position"
         ]
 
-        print(
+        logger.info(
             "[WhatsApp] Accepted batch image "
             f"{image_position}/{self.MAX_BATCH_IMAGES} "
-            f"for batch {batch_id}."
         )
 
         # -----------------------------------------------------
@@ -814,10 +756,9 @@ class WhatsAppProcessor:
 
         if not claimed:
 
-            print(
+            logger.info(
                 "[WhatsApp] Batch finalization skipped "
                 "because another worker already claimed "
-                f"batch {batch_id}."
             )
 
             return
@@ -1237,45 +1178,10 @@ class WhatsAppProcessor:
                 to=sender,
                 text=response_text,
             )
-
-            print(
-                "\n"
-                "========== MULTI-IMAGE ASSESSMENT "
-                "=========="
-            )
-
-            print(
-                f"Batch: {batch_id}"
-            )
-
-            print(
-                "Images:",
+            logger.info(
+                "Multi-image assessment completed successfully "
+                "using %s image(s).",
                 aggregation.image_count,
-            )
-
-            print(
-                "Agreement:",
-                f"{aggregation.agreement_count}/"
-                f"{aggregation.image_count}",
-            )
-
-            print(
-                "Disease:",
-                combined_assessment[
-                    "disease"
-                ],
-            )
-
-            print(
-                "Confidence:",
-                combined_assessment[
-                    "confidence"
-                ],
-            )
-
-            print(
-                "====================================="
-                "=======\n"
             )
 
         except Exception:
@@ -1297,9 +1203,8 @@ class WhatsAppProcessor:
 
             except Exception as cleanup_exc:
 
-                print(
-                    "[WhatsApp] Could not clean up failed "
-                    f"batch {batch_id}: {cleanup_exc}"
+                logger.warning(
+                    "[WhatsApp] Could not clean up a failed image batch. "
                 )
 
             raise

@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 from contextlib import asynccontextmanager
 from fastapi import HTTPException, Request, status, FastAPI, File, Form, UploadFile, BackgroundTasks
 from pydantic import BaseModel
@@ -84,7 +88,10 @@ async def lifespan(app: FastAPI):
     try:
         await get_pool()
     except Exception as exc:
-        print(f"[startup] Could not connect to database: {exc}")
+        logger.error(
+            "Could not connect to database: %s",
+            exc,
+        )
 
     yield
 
@@ -167,7 +174,7 @@ async def receive_whatsapp_webhook(
 
     if not signature_valid:
 
-        print(
+        logger.warning(
             "[WhatsApp] Rejected webhook with invalid "
             "or missing signature."
         )
@@ -222,49 +229,26 @@ async def receive_whatsapp_webhook(
     # =========================================================
     # 5. Log outbound delivery statuses
     # =========================================================
-
     if statuses:
 
-        print(
-            "\n========== WHATSAPP STATUSES =========="
-        )
+        for status_data in statuses:
 
-        for status in statuses:
-
-            print(
-                f"Message ID: "
-                f"{status.get('message_id')}"
+            delivery_status = (
+                status_data.get("status")
+                or "unknown"
             )
 
-            print(
-                f"Recipient: "
-                f"{status.get('recipient_id')}"
-            )
-
-            print(
-                f"Status: "
-                f"{status.get('status')}"
-            )
-
-            errors = status.get(
+            errors = status_data.get(
                 "errors",
                 [],
             )
 
-            if errors:
-
-                print(
-                    "ERRORS:"
-                )
-
-                print(
-                    errors
-                )
-
-        print(
-            "=======================================\n"
-        )
-
+            logger.info(
+                "WhatsApp delivery status received: "
+                "status=%s, has_errors=%s",
+                delivery_status,
+                bool(errors),
+            )
     # =========================================================
     # 6 . Claim and schedule incoming farmer messages
     # =========================================================
@@ -291,7 +275,7 @@ async def receive_whatsapp_webhook(
 
         if not message_id:
 
-            print(
+            logger.warning(
                 "[WhatsApp] Ignoring message "
                 "without message_id."
             )
@@ -314,9 +298,8 @@ async def receive_whatsapp_webhook(
 
             duplicate_count += 1
 
-            print(
-                "[WhatsApp] Duplicate message ignored: "
-                f"{message_id}"
+            logger.warning(
+                "[WhatsApp] Duplicate message ignored",
             )
 
             continue
@@ -332,9 +315,8 @@ async def receive_whatsapp_webhook(
 
         scheduled_count += 1
 
-        print(
-            "[WhatsApp] Scheduled message: "
-            f"{message_id}"
+        logger.info(
+            "[WhatsApp] Scheduled message for processing"
         )
 
     # =========================================================
@@ -505,15 +487,10 @@ async def predict(
                 "is not available."
             ),
         ) from exc
-
     except Exception as exc:
 
-        print(
-            "IMAGE ANALYSIS ERROR:"
-        )
-
-        print(
-            repr(exc)
+        logger.error(
+            "Image analysis request failed."
         )
 
         raise HTTPException(
@@ -575,8 +552,10 @@ async def chat(request: ChatRequest, http_request: Request):
         ) from exc
 
     except Exception as exc:
-        print("CHAT ERROR:")
-        print(repr(exc))
+
+        logger.error(
+            "Chat processing request failed."
+        )
 
         raise HTTPException(
             status_code=500,
@@ -584,3 +563,4 @@ async def chat(request: ChatRequest, http_request: Request):
                 "Unable to process chat message."
             ),
         ) from exc
+
