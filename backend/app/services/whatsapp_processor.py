@@ -410,10 +410,19 @@ class WhatsAppProcessor:
             == "processing"
         ):
 
-            logger.info(
-                "Additional WhatsApp image ignored because "
-                "the current batch is already processing."
+            logger.warning(
+                "[WhatsApp] Image received while an existing "
+                "assessment is still processing."
             )
+
+            await self.whatsapp_service.send_text_message(
+                to=sender,
+                text=(
+                    "Your previous tomato assessment is still being analysed. "
+                    "Please wait for that result before sending another image."
+                ),
+            )
+
             return
 
         logger.info(

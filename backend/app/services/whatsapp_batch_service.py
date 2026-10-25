@@ -15,6 +15,7 @@ class WhatsAppBatchService:
     """
 
     DEFAULT_MAX_IMAGES = 3
+    PROCESSING_TIMEOUT_MINUTES = 5
 
     # =========================================================
     # ACTIVE BATCH
@@ -633,33 +634,61 @@ class WhatsAppBatchService:
 
         async with pool.acquire() as conn:
 
-            row = await conn.fetchrow(
-                """
-                SELECT
-                    id,
+            async with conn.transaction():
+
+                # Recover an abandoned processing batch.
+                #
+                # A worker may have claimed the batch and then
+                # terminated before completing or cancelling it.
+                await conn.execute(
+                    """
+                    UPDATE whatsapp_assessment_batches
+
+                    SET
+                        status = 'cancelled',
+                        updated_at = now()
+
+                    WHERE
+                        phone_number = $1
+                        AND status = 'processing'
+                        AND updated_at <= (
+                            now()
+                            - make_interval(
+                                mins => $2
+                            )
+                        )
+                    """,
                     phone_number,
-                    status,
-                    max_images,
-                    created_at,
-                    updated_at,
-                    expires_at,
-                    completed_at
+                    self.PROCESSING_TIMEOUT_MINUTES,
+                )
 
-                FROM whatsapp_assessment_batches
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        id,
+                        phone_number,
+                        status,
+                        max_images,
+                        created_at,
+                        updated_at,
+                        expires_at,
+                        completed_at
 
-                WHERE
-                    phone_number = $1
-                    AND status IN (
-                        'collecting',
-                        'processing'
-                    )
+                    FROM whatsapp_assessment_batches
 
-                ORDER BY created_at DESC
+                    WHERE
+                        phone_number = $1
+                        AND status IN (
+                            'collecting',
+                            'processing'
+                        )
 
-                LIMIT 1
-                """,
-                phone_number,
-            )
+                    ORDER BY created_at DESC
+
+                    LIMIT 1
+                    """,
+                    phone_number,
+                )
 
         return (
             dict(row)
