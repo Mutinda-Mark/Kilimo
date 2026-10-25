@@ -1,26 +1,22 @@
-# --- Web framework & background tasks ---
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 fastapi==0.111.0
 uvicorn[standard]==0.30.1
 pydantic-settings==2.3.4
 huey==2.5.1
 
-# --- Database (Supabase Postgres + pgvector) ---
-asyncpg==0.30.0
+asyncpg==0.31.0
 pgvector==0.2.5
 
-# --- LLM / embeddings (Phase 3+) ---
 openai==1.35.3
 google-genai==2.25.0
-httpx==0.27.0
+httpx==0.28.1
 
-# --- Computer vision (Phase 1+) ---
-# On Windows, CPU-only wheels install fine via plain pip install.
-# If you ever add a local GPU, use the index at https://download.pytorch.org/whl
-torch==2.3.1
-torchvision==0.18.1
+torch==2.14.0+cpu
+torchvision==0.29.0+cpu
 grad-cam==1.5.0
-pillow==10.3.0
-numpy==1.26.4
 
-# --- Testing ---
-pytest==8.2.2
+pillow==12.3.0
+numpy==2.5.2
+
+pytest==9.1.1

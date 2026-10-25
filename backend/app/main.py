@@ -1,11 +1,22 @@
-from contextlib import asynccontextmanager
-from io import BytesIO
+import logging
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Query, Request, BackgroundTasks
+logging.getLogger("app").setLevel(
+    logging.INFO
+)
+
+logger = logging.getLogger(__name__)
+
+from contextlib import asynccontextmanager
+from fastapi import HTTPException, Request, status, FastAPI, File, Form, UploadFile, BackgroundTasks
 from pydantic import BaseModel
 from PIL import Image, UnidentifiedImageError
+import json
+from io import BytesIO
 
-from app.config import settings
+from app.config import (
+    settings,
+    validate_production_settings,
+)
 from app.db import close_pool, get_pool
 from app.admin.router import router as admin_router
 from app.services.session_service import SessionService
@@ -14,14 +25,33 @@ from app.services.image_analysis_service import ImageAnalysisService
 from app.services.whatsapp_event_service import WhatsAppEventService
 from app.services.assessment_service import AssessmentService
 from app.services.whatsapp_processor import WhatsAppProcessor
-from app.whatsapp.webhook import verify_webhook, extract_messages, extract_statuses
+from app.security.deployment import (
+    api_documentation_urls,
+)
+from app.security.public_api import (
+    require_direct_api_access,
+)
+from app.whatsapp.webhook import (
+    extract_messages,
+    extract_statuses,
+    verify_webhook,
+    verify_webhook_signature,
+)
 from app.whatsapp.service import WhatsAppService
+from app.services.whatsapp_batch_service import WhatsAppBatchService
+from app.security.rate_limit import (
+    InMemoryRateLimiter,
+    enforce_rate_limit,
+)
 from cv.assessor import TomatoAssessor
+from cv.config import MAX_IMAGE_FILE_SIZE_BYTES
+from cv.subject_validator import TomatoSubjectValidator
 from nlp.advisory import AdvisoryEngine
 from nlp.responder import AdvisoryResponder
 
 
 assessor = TomatoAssessor()
+subject_validator = TomatoSubjectValidator()
 advisory_engine = AdvisoryEngine()
 advisory_responder = AdvisoryResponder()
 session_service = SessionService()
@@ -33,34 +63,74 @@ chat_service = ChatService(
 whatsapp_service = WhatsAppService()
 image_analysis_service = ImageAnalysisService(
     assessor=assessor,
+    subject_validator=subject_validator,
     advisory_engine=advisory_engine,
     advisory_responder=advisory_responder,
     session_service=session_service,
     assessment_service=assessment_service,
 )
 whatsapp_event_service = WhatsAppEventService()
+whatsapp_batch_service = WhatsAppBatchService()
+predict_rate_limiter = InMemoryRateLimiter(
+    limit=(
+        settings.predict_rate_limit_requests
+    ),
+    window_seconds=(
+        settings.predict_rate_limit_window_seconds
+    ),
+)
+
+chat_rate_limiter = InMemoryRateLimiter(
+    limit=(
+        settings.chat_rate_limit_requests
+    ),
+    window_seconds=(
+        settings.chat_rate_limit_window_seconds
+    ),
+)
 whatsapp_processor = WhatsAppProcessor(
     whatsapp_service=whatsapp_service,
     chat_service=chat_service,
     image_analysis_service=image_analysis_service,
     event_service=whatsapp_event_service,
+    batch_service=whatsapp_batch_service,
 )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_production_settings(
+        settings
+    )
+
     try:
         await get_pool()
-    except Exception as exc:
-        print(f"[startup] Could not connect to database: {exc}")
+
+    except Exception:
+        logger.error(
+            "Database connection was unavailable during startup."
+        )
 
     yield
 
     await close_pool()
-
+is_production = (
+    settings.environment
+    .strip()
+    .lower()
+    == "production"
+)
+documentation_urls = (
+    api_documentation_urls(
+        settings.environment
+    )
+)
 app = FastAPI(
     title="Tomato Disease Advisory Backend",
     version="0.5.0",
     lifespan=lifespan,
+    docs_url=documentation_urls["docs_url"],
+    redoc_url=documentation_urls["redoc_url"],
+    openapi_url=documentation_urls["openapi_url"],
 )
 app.include_router(
     admin_router
@@ -111,34 +181,71 @@ async def receive_whatsapp_webhook(
     """
 
     # =========================================================
-    # 1. Parse webhook JSON
+    # 1. Read raw request body
+    # =========================================================
+
+    raw_body = await request.body()
+
+    # =========================================================
+    # 2. Verify Meta webhook signature
+    # =========================================================
+
+    signature_header = request.headers.get(
+        "X-Hub-Signature-256"
+    )
+
+    signature_valid = (
+        verify_webhook_signature(
+            raw_body=raw_body,
+            signature_header=signature_header,
+            app_secret=settings.whatsapp_app_secret,
+        )
+    )
+
+    if not signature_valid:
+
+        logger.warning(
+            "[WhatsApp] Rejected webhook with invalid "
+            "or missing signature."
+        )
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid webhook signature.",
+        )
+
+    # =========================================================
+    # 3. Parse authenticated JSON payload
     # =========================================================
 
     try:
 
-        payload = await request.json()
+        payload = json.loads(
+            raw_body
+        )
 
-    except Exception as exc:
+    except (
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+    ) as exc:
 
         raise HTTPException(
             status_code=400,
             detail="Invalid JSON payload.",
         ) from exc
 
-    print(
-        "\n========== WHATSAPP RAW WEBHOOK =========="
-    )
+    if not isinstance(
+        payload,
+        dict,
+    ):
 
-    print(
-        payload
-    )
-
-    print(
-        "==========================================\n"
-    )
+        raise HTTPException(
+            status_code=400,
+            detail="Webhook payload must be a JSON object.",
+        )
 
     # =========================================================
-    # 2. Extract events
+    # 4. Extract events
     # =========================================================
 
     messages = extract_messages(
@@ -148,55 +255,36 @@ async def receive_whatsapp_webhook(
     statuses = extract_statuses(
         payload
     )
-
+    logger.info(
+        "[WhatsApp] Webhook received: messages=%s, statuses=%s.",
+        len(messages),
+        len(statuses),
+    )
     # =========================================================
-    # 3. Log outbound delivery statuses
+    # 5. Log outbound delivery statuses
     # =========================================================
-
     if statuses:
 
-        print(
-            "\n========== WHATSAPP STATUSES =========="
-        )
+        for status_data in statuses:
 
-        for status in statuses:
-
-            print(
-                f"Message ID: "
-                f"{status.get('message_id')}"
+            delivery_status = (
+                status_data.get("status")
+                or "unknown"
             )
 
-            print(
-                f"Recipient: "
-                f"{status.get('recipient_id')}"
-            )
-
-            print(
-                f"Status: "
-                f"{status.get('status')}"
-            )
-
-            errors = status.get(
+            errors = status_data.get(
                 "errors",
                 [],
             )
 
-            if errors:
-
-                print(
-                    "ERRORS:"
-                )
-
-                print(
-                    errors
-                )
-
-        print(
-            "=======================================\n"
-        )
-
+            logger.info(
+                "WhatsApp delivery status received: "
+                "status=%s, has_errors=%s",
+                delivery_status,
+                bool(errors),
+            )
     # =========================================================
-    # 4. Claim and schedule incoming farmer messages
+    # 6 . Claim and schedule incoming farmer messages
     # =========================================================
 
     scheduled_count = 0
@@ -221,7 +309,7 @@ async def receive_whatsapp_webhook(
 
         if not message_id:
 
-            print(
+            logger.warning(
                 "[WhatsApp] Ignoring message "
                 "without message_id."
             )
@@ -244,9 +332,8 @@ async def receive_whatsapp_webhook(
 
             duplicate_count += 1
 
-            print(
-                "[WhatsApp] Duplicate message ignored: "
-                f"{message_id}"
+            logger.warning(
+                "[WhatsApp] Duplicate message ignored",
             )
 
             continue
@@ -262,13 +349,12 @@ async def receive_whatsapp_webhook(
 
         scheduled_count += 1
 
-        print(
-            "[WhatsApp] Scheduled message: "
-            f"{message_id}"
+        logger.info(
+            "[WhatsApp] Scheduled message for processing"
         )
 
     # =========================================================
-    # 5. Return quickly to Meta
+    # 7. Return quickly to Meta
     # =========================================================
 
     return {
@@ -277,20 +363,6 @@ async def receive_whatsapp_webhook(
         "scheduled_count": scheduled_count,
         "duplicate_count": duplicate_count,
         "status_count": len(statuses),
-    }
-
-@app.post("/test-whatsapp-send")
-async def test_whatsapp_send(
-    phone_number: str,
-):
-    result = await whatsapp_service.send_text_message(
-        to=phone_number,
-        text="Hello from KILIMO 🌱",
-    )
-
-    return {
-        "status": "sent",
-        "result": result,
     }
 
 @app.get("/")
@@ -303,26 +375,14 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    db_ok = False
-
-    try:
-        pool = await get_pool()
-
-        async with pool.acquire() as conn:
-            db_ok = (await conn.fetchval("SELECT 1")) == 1
-
-    except Exception:
-        db_ok = False
-
     return {
-        "status": "ok" if db_ok else "degraded",
-        "database": "connected" if db_ok else "unreachable",
-        "environment": settings.environment,
+        "status": "ok"
     }
 
 
 @app.post("/predict")
 async def predict(
+    request: Request,
     file: UploadFile = File(...),
     question: str | None = Form(default=None),
     phone_number: str | None = Form(default=None),
@@ -333,6 +393,15 @@ async def predict(
     If phone_number is supplied, the assessment is stored in the
     farmer's session and conversation history.
     """
+    require_direct_api_access(
+        settings.environment
+    )
+
+    await enforce_rate_limit(
+        request=request,
+        limiter=predict_rate_limiter,
+        scope="predict",
+    )
 
     # =========================================================
     # 1. Validate uploaded file
@@ -356,12 +425,26 @@ async def predict(
     # =========================================================
 
     try:
-        image_bytes = await file.read()
+        image_bytes = await file.read(
+            MAX_IMAGE_FILE_SIZE_BYTES + 1
+        )
 
         if not image_bytes:
             raise HTTPException(
                 status_code=400,
                 detail="Uploaded image is empty.",
+            )
+
+        if (
+            len(image_bytes)
+            > MAX_IMAGE_FILE_SIZE_BYTES
+        ):
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    "Uploaded image exceeds the "
+                    "maximum allowed size of 8 MB."
+                ),
             )
 
         image = Image.open(
@@ -383,11 +466,15 @@ async def predict(
         ) from exc
 
     except Exception as exc:
+
+        logger.warning(
+            "Uploaded image could not be decoded."
+        )
+
         raise HTTPException(
             status_code=400,
             detail=(
-                "Could not process uploaded "
-                f"image: {exc}"
+                "Could not process uploaded image."
             ),
         ) from exc
 
@@ -406,15 +493,26 @@ async def predict(
                     or "Uploaded tomato leaf image"
                 ),
                 source="api",
+                file_size_bytes=len(
+                    image_bytes
+                ),
+                mime_type=file.content_type,
             )
         )
 
         return result
 
     except ValueError as exc:
+
+        logger.warning(
+            "Image assessment request failed service validation."
+        )
+
         raise HTTPException(
             status_code=400,
-            detail=str(exc),
+            detail=(
+                "Invalid image assessment request."
+            ),
         ) from exc
 
     except FileNotFoundError as exc:
@@ -425,15 +523,10 @@ async def predict(
                 "is not available."
             ),
         ) from exc
-
     except Exception as exc:
 
-        print(
-            "IMAGE ANALYSIS ERROR:"
-        )
-
-        print(
-            repr(exc)
+        logger.error(
+            "Image analysis request failed."
         )
 
         raise HTTPException(
@@ -453,7 +546,10 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, http_request: Request):
+    require_direct_api_access(
+        settings.environment
+    )
     phone_number = (
         request.phone_number or ""
     ).strip()
@@ -461,6 +557,12 @@ async def chat(request: ChatRequest):
     question = (
         request.question or ""
     ).strip()
+
+    await enforce_rate_limit(
+        request=http_request,
+        limiter=chat_rate_limiter,
+        scope="chat",
+    )
 
     if not phone_number:
         raise HTTPException(
@@ -483,14 +585,23 @@ async def chat(request: ChatRequest):
         return result
 
     except ValueError as exc:
+
+        logger.warning(
+            "Chat request failed service validation."
+        )
+
         raise HTTPException(
             status_code=400,
-            detail=str(exc),
+            detail=(
+                "Invalid chat request."
+            ),
         ) from exc
 
     except Exception as exc:
-        print("CHAT ERROR:")
-        print(repr(exc))
+
+        logger.error(
+            "Chat processing request failed."
+        )
 
         raise HTTPException(
             status_code=500,
@@ -498,37 +609,4 @@ async def chat(request: ChatRequest):
                 "Unable to process chat message."
             ),
         ) from exc
-# =============================================================
-# Conversation history
-# =============================================================
 
-@app.get("/sessions/{phone_number}/history")
-async def get_session_history(
-    phone_number: str,
-    limit: int = Query(default=20, ge=1, le=100),
-):
-    try:
-        normalized_phone = phone_number.strip()
-
-        if not normalized_phone:
-            raise ValueError("Phone number cannot be empty.")
-
-        history = await session_service.get_history(
-            normalized_phone,
-            limit=limit,
-        )
-
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Could not retrieve conversation history: {exc}",
-        ) from exc
-
-    return {
-        "phone_number": normalized_phone,
-        "count": len(history),
-        "history": history,
-    }

@@ -14,30 +14,27 @@ from app.main import (
     assessment_service,
 )
 from app.db import get_pool
-
+from tests.image_test_utils import create_valid_test_image_bytes
 
 PHONE_NUMBER = "254700000004"
 
 
-def create_test_image():
-    """Create a small valid PNG image for API tests."""
+def create_test_image() -> bytes:
+    """
+    Create a technically valid PNG image.
 
-    image = Image.new(
-        "RGB",
-        (10, 10),
-        "green",
+    Failure-handling tests need an image that passes the quality
+    gate so that the test can reach the deliberately mocked
+    downstream failure.
+    """
+
+    from tests.image_test_utils import (
+        create_valid_test_image_bytes,
     )
 
-    buffer = io.BytesIO()
-
-    image.save(
-        buffer,
-        format="PNG",
+    return create_valid_test_image_bytes(
+        image_format="PNG"
     )
-
-    buffer.seek(0)
-
-    return buffer.getvalue()
 
 
 async def cleanup_test_data():
@@ -129,6 +126,7 @@ def fake_advisory_generate(
 @pytest.mark.asyncio
 async def test_predict_handles_cv_failure(
     monkeypatch,
+    supported_subject,
 ):
     """
     A CV exception should not expose internal details.
@@ -179,6 +177,7 @@ async def test_predict_handles_cv_failure(
 @pytest.mark.asyncio
 async def test_predict_handles_advisory_failure(
     monkeypatch,
+    supported_subject,
 ):
     """
     Advisory-generation failures should return the same
@@ -241,6 +240,7 @@ async def test_predict_handles_advisory_failure(
 @pytest.mark.asyncio
 async def test_predict_handles_responder_failure(
     monkeypatch,
+    supported_subject,
 ):
     """
     Natural-language generation failure should not leak
@@ -309,6 +309,7 @@ async def test_predict_handles_responder_failure(
 @pytest.mark.asyncio
 async def test_chat_handles_responder_failure(
     monkeypatch,
+    supported_subject,
 ):
     """
     Chat responder failure should return the stable public

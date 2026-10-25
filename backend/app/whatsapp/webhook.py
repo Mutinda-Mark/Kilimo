@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 from typing import Any
 
 
@@ -65,6 +67,77 @@ def verify_webhook(
         return None
 
     return challenge
+
+def verify_webhook_signature(
+    raw_body: bytes,
+    signature_header: str | None,
+    app_secret: str,
+) -> bool:
+    """
+    Verify Meta's X-Hub-Signature-256 header.
+
+    Expected header format:
+
+        sha256=<hex digest>
+
+    The digest is HMAC-SHA256 over the exact raw request body
+    using the Meta App Secret.
+
+    Returns False for:
+    - missing signature;
+    - missing app secret;
+    - malformed signature;
+    - incorrect signature.
+    """
+
+    if not app_secret:
+        return False
+
+    if not signature_header:
+        return False
+
+    prefix = "sha256="
+
+    if not signature_header.startswith(
+        prefix
+    ):
+        return False
+
+    received_digest = (
+        signature_header[
+            len(prefix):
+        ]
+        .strip()
+        .lower()
+    )
+
+    # SHA-256 hex digests are exactly 64 characters.
+    if len(
+        received_digest
+    ) != 64:
+        return False
+
+    # Reject non-hex values explicitly.
+    try:
+        bytes.fromhex(
+            received_digest
+        )
+
+    except ValueError:
+        return False
+
+    expected_digest = hmac.new(
+        key=app_secret.encode(
+            "utf-8"
+        ),
+        msg=raw_body,
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+
+    return hmac.compare_digest(
+        expected_digest,
+        received_digest,
+    )
 
 def extract_statuses(payload: dict[str, Any]) -> list[dict[str, Any]]:
     statuses = []

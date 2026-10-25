@@ -10,24 +10,29 @@ from app.main import (
     app,
     chat_service,
     image_analysis_service,
+    settings,
 )
 
 
 PHONE_NUMBER = "254700000001"
 
+TEST_ADMIN_TOKEN = (
+    "test-admin-api-token"
+)
 
-def make_test_image():
-    image = Image.new(
-        "RGB",
-        (224, 224),
-        color="green",
+
+def make_test_image() -> bytes:
+    """
+    Create a quality-gate-compatible PNG for chat-flow tests.
+    """
+
+    from tests.image_test_utils import (
+        create_valid_test_image_bytes,
     )
 
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    buffer.seek(0)
-
-    return buffer.read()
+    return create_valid_test_image_bytes(
+        image_format="PNG"
+    )
 
 
 async def cleanup_test_data():
@@ -73,7 +78,13 @@ async def clean_chat_flow_data():
 @pytest.mark.asyncio
 async def test_complete_chat_flow(
     monkeypatch,
+    supported_subject,
 ):
+    monkeypatch.setattr(
+        settings,
+        "admin_api_token",
+        TEST_ADMIN_TOKEN,
+    )
     """
     Test the complete farmer conversation flow:
 
@@ -369,7 +380,12 @@ async def test_complete_chat_flow(
         # =====================================================
 
         response = await client.get(
-            f"/sessions/{PHONE_NUMBER}/history"
+            f"/admin/sessions/{PHONE_NUMBER}/history",
+            headers = {
+                "Authorization": (
+                    f"Bearer {TEST_ADMIN_TOKEN}"
+                )
+            }
         )
 
         assert response.status_code == 200

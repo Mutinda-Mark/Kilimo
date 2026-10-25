@@ -1,8 +1,11 @@
 "use client"
 
+import Link from "next/link"
+
 import {
   ChevronDown,
   LogOut,
+  Settings,
   ShieldCheck,
   UserRound,
 } from "lucide-react"
@@ -52,7 +55,7 @@ function initials(
 
 
 function roleLabel(
-  role: string
+  role: string,
 ) {
   switch (role) {
     case "super_admin":
@@ -96,12 +99,14 @@ export function AdminProfileMenu({
     admin.display_name ??
     user.user_metadata
       ?.full_name ??
+    user.user_metadata
+      ?.name ??
     "Administrator"
 
 
   useEffect(() => {
     function close(
-      event: MouseEvent
+      event: MouseEvent,
     ) {
       if (
         containerRef.current &&
@@ -149,13 +154,21 @@ export function AdminProfileMenu({
       className="relative"
     >
 
+      {/* =================================================
+          TRIGGER
+      ================================================= */}
+
       <button
         type="button"
-        aria-expanded={open}
+        aria-expanded={
+          open
+        }
         aria-haspopup="menu"
         onClick={() =>
           setOpen(
-            (value) =>
+            (
+              value
+            ) =>
               !value
           )
         }
@@ -189,12 +202,20 @@ export function AdminProfileMenu({
       </button>
 
 
+      {/* =================================================
+          MENU
+      ================================================= */}
+
       {open && (
 
         <div
           role="menu"
           className="absolute right-0 top-12 z-50 w-72 overflow-hidden rounded-xl border bg-popover shadow-lg"
         >
+
+          {/* =============================================
+              IDENTITY
+          ============================================= */}
 
           <div className="border-b p-4">
 
@@ -243,11 +264,74 @@ export function AdminProfileMenu({
           </div>
 
 
+          {/* =============================================
+              NAVIGATION
+          ============================================= */}
+
           <div className="p-2">
 
-            <div className="flex items-center gap-2 rounded-lg px-3 py-2">
+            <Link
+              href="/profile"
+              role="menuitem"
+              onClick={() =>
+                setOpen(
+                  false
+                )
+              }
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent"
+            >
 
               <UserRound className="size-4 text-muted-foreground" />
+
+              <div>
+
+                <p className="text-xs font-medium">
+                  Profile
+                </p>
+
+                <p className="text-[10px] text-muted-foreground">
+                  Identity and account security
+                </p>
+
+              </div>
+
+            </Link>
+
+
+            <Link
+              href="/settings"
+              role="menuitem"
+              onClick={() =>
+                setOpen(
+                  false
+                )
+              }
+              className="mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent"
+            >
+
+              <Settings className="size-4 text-muted-foreground" />
+
+              <div>
+
+                <p className="text-xs font-medium">
+                  Settings
+                </p>
+
+                <p className="text-[10px] text-muted-foreground">
+                  Appearance and session
+                </p>
+
+              </div>
+
+            </Link>
+
+
+            <div className="my-2 border-t" />
+
+
+            <div className="flex items-center gap-3 rounded-lg px-3 py-2">
+
+              <ShieldCheck className="size-4 text-muted-foreground" />
 
               <div>
 
@@ -275,14 +359,24 @@ export function AdminProfileMenu({
               onClick={
                 signOut
               }
-              className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-accent disabled:opacity-50"
+              className="mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent disabled:opacity-50"
             >
 
               <LogOut className="size-4 text-muted-foreground" />
 
-              {signingOut
-                ? "Signing out..."
-                : "Sign out"}
+              <div>
+
+                <p className="text-xs font-medium">
+                  {signingOut
+                    ? "Signing out..."
+                    : "Sign out"}
+                </p>
+
+                <p className="text-[10px] text-muted-foreground">
+                  End this administrator session
+                </p>
+
+              </div>
 
             </button>
 

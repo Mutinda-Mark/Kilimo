@@ -1,5 +1,8 @@
 from __future__ import annotations
+import logging
 
+
+logger = logging.getLogger(__name__)
 import time
 from typing import Sequence
 
@@ -84,7 +87,7 @@ class EmbeddingService:
 
                 delay = 2 ** attempt
 
-                print(
+                logger.warning(
                     f"Embedding request temporarily unavailable. "
                     f"Retrying in {delay}s..."
                 )

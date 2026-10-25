@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app.main import app
+from tests.image_test_utils import create_valid_test_image_bytes
 from nlp.advisory import AdvisoryEngine
 
 advisory_engine = AdvisoryEngine()
@@ -29,22 +30,20 @@ client = TestClient(app)
 # ---------------------------------------------------------------------------
 
 def create_test_image() -> bytes:
-    """Create a simple JPEG image for API testing."""
+    """
+    Create a technically valid synthetic JPEG image for API tests.
 
-    image = Image.new(
-        "RGB",
-        (256, 256),
-        (80, 140, 80),
+    The image contains sufficient edge detail to pass the
+    Sprint III image-quality gate.
+    """
+
+    from tests.image_test_utils import (
+        create_valid_test_image_bytes,
     )
 
-    buffer = io.BytesIO()
-
-    image.save(
-        buffer,
-        format="JPEG",
+    return create_valid_test_image_bytes(
+        image_format="JPEG"
     )
-
-    return buffer.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -80,14 +79,15 @@ def test_health_endpoint():
     data = response.json()
 
     assert "status" in data
-    assert "database" in data
-    assert "environment" in data
 
     assert data["status"] in {
         "ok",
         "degraded",
     }
 
+    assert "database" not in data
+    assert "environment" not in data
+
 
 # ---------------------------------------------------------------------------
 # Prediction endpoint
@@ -97,7 +97,7 @@ def test_health_endpoint():
 # Prediction endpoint
 # ---------------------------------------------------------------------------
 
-def test_predict_valid_image():
+def test_predict_valid_image(supported_subject):
     """POST /predict should accept an image and return prediction, severity and advisory data."""
 
     image_bytes = create_test_image()
@@ -170,7 +170,7 @@ def test_predict_valid_image():
 # Prediction probability validation
 # ---------------------------------------------------------------------------
 
-def test_predict_probabilities_sum_to_one():
+def test_predict_probabilities_sum_to_one(supported_subject):
     """Prediction class probabilities should sum approximately to 1."""
 
     image_bytes = create_test_image()

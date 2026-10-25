@@ -137,14 +137,6 @@ class ChatService:
             context=context,
         )
 
-        print(
-            "\n========== CHAT ADVISORY =========="
-        )
-        print(advisory)
-        print(
-            "===================================\n"
-        )
-
         # -----------------------------------------------------
         # 7. Generate answer using responder + RAG
         # -----------------------------------------------------

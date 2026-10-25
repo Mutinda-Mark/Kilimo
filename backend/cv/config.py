@@ -86,3 +86,40 @@ CV_DIR = Path(__file__).parent
 WEIGHTS_DIR = CV_DIR / "weights"
 
 DEFAULT_WEIGHTS_PATH = WEIGHTS_DIR / "best_model.pt"
+
+SUBJECT_VALIDATOR_WEIGHTS_PATH = (
+    WEIGHTS_DIR
+    / "tomato_subject_validator.pt"
+)
+
+SUBJECT_UNSUPPORTED_THRESHOLD: float = 0.20
+
+SUBJECT_SUPPORTED_THRESHOLD: float = 0.80
+
+# ── Image quality settings ───────────────────────────────────────────────────
+#
+# These are initial operational thresholds for the Sprint III image-quality
+# gate. They should be evaluated using representative phone images and adjusted
+# based on recorded test results before final evaluation.
+
+MIN_IMAGE_WIDTH: int = 224
+MIN_IMAGE_HEIGHT: int = 224
+
+MAX_IMAGE_FILE_SIZE_BYTES: int = 8 * 1024 * 1024  # 8 MB
+
+SUPPORTED_IMAGE_MIME_TYPES: set[str] = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+}
+
+# Mean grayscale intensity on a 0-255 scale.
+MIN_IMAGE_BRIGHTNESS: float = 35.0
+MAX_IMAGE_BRIGHTNESS: float = 225.0
+
+# Variance of a Laplacian-style edge response.
+#
+# Lower values indicate less edge detail and therefore possible blur.
+# This is deliberately configurable because the final threshold must be
+# justified using representative test images rather than treated as universal.
+MIN_IMAGE_BLUR_SCORE: float = 60.0

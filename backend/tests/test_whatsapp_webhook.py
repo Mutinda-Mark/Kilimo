@@ -1,26 +1,130 @@
+import hashlib
+import hmac
+import json
+
 import pytest
 import pytest_asyncio
 
-from httpx import ASGITransport, AsyncClient
+from httpx import (
+    ASGITransport,
+    AsyncClient,
+)
 
-from app.main import app
+from app.main import (
+    app,
+    settings,
+)
 from app.db import get_pool
-from app.whatsapp.webhook import extract_messages
+from app.whatsapp.webhook import (
+    extract_messages,
+)
 
 
 TEST_PHONE = "254700000005"
-TEST_MESSAGE_ID = "msg-test-whatsapp-789"
+
+TEST_MESSAGE_ID = (
+    "msg-test-whatsapp-789"
+)
+
+TEST_APP_SECRET = (
+    "test-meta-app-secret"
+)
+
+
+# ============================================================
+# TEST SIGNATURE HELPERS
+# ============================================================
+
+
+def encode_payload(
+    payload: dict,
+) -> bytes:
+    """
+    Serialize a test webhook payload once.
+
+    The exact resulting bytes are both signed and sent to the
+    endpoint so the HMAC covers the same bytes received by
+    FastAPI.
+    """
+
+    return json.dumps(
+        payload,
+        separators=(
+            ",",
+            ":",
+        ),
+        ensure_ascii=False,
+    ).encode(
+        "utf-8"
+    )
+
+
+def make_signature(
+    raw_body: bytes,
+    secret: str = TEST_APP_SECRET,
+) -> str:
+    """
+    Generate a Meta-style X-Hub-Signature-256 header.
+    """
+
+    digest = hmac.new(
+        key=secret.encode(
+            "utf-8"
+        ),
+        msg=raw_body,
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+
+    return (
+        f"sha256={digest}"
+    )
+
+
+async def post_signed_webhook(
+    client: AsyncClient,
+    payload: dict,
+):
+    """
+    POST one correctly signed webhook payload.
+    """
+
+    raw_body = encode_payload(
+        payload
+    )
+
+    return await client.post(
+        "/webhook/whatsapp",
+        content=raw_body,
+        headers={
+            "Content-Type":
+                "application/json",
+
+            "X-Hub-Signature-256":
+                make_signature(
+                    raw_body
+                ),
+        },
+    )
+
+
+# ============================================================
+# DATABASE CLEANUP
+# ============================================================
 
 
 async def cleanup_whatsapp_test_data():
-    """Remove WhatsApp records created by this test module."""
+    """
+    Remove WhatsApp records created by this test module.
+    """
 
     pool = await get_pool()
 
     async with pool.acquire() as conn:
+
         await conn.execute(
             """
             DELETE FROM whatsapp_messages
+
             WHERE message_id = $1
             """,
             TEST_MESSAGE_ID,
@@ -29,6 +133,7 @@ async def cleanup_whatsapp_test_data():
         await conn.execute(
             """
             DELETE FROM conversation_history
+
             WHERE phone_number = $1
             """,
             TEST_PHONE,
@@ -37,6 +142,7 @@ async def cleanup_whatsapp_test_data():
         await conn.execute(
             """
             DELETE FROM sessions
+
             WHERE phone_number = $1
             """,
             TEST_PHONE,
@@ -46,7 +152,22 @@ async def cleanup_whatsapp_test_data():
 @pytest_asyncio.fixture(
     autouse=True
 )
-async def clean_whatsapp_test_data():
+async def clean_whatsapp_test_data(
+    monkeypatch,
+):
+    """
+    Isolate webhook tests from production Meta credentials.
+
+    The endpoint receives a controlled App Secret only for the
+    duration of each test.
+    """
+
+    monkeypatch.setattr(
+        settings,
+        "whatsapp_app_secret",
+        TEST_APP_SECRET,
+    )
+
     await cleanup_whatsapp_test_data()
 
     yield
@@ -54,9 +175,16 @@ async def clean_whatsapp_test_data():
     await cleanup_whatsapp_test_data()
 
 
+# ============================================================
+# EXTRACTION TESTS
+# ============================================================
+
+
 def test_extract_text_message():
     payload = {
-        "object": "whatsapp_business_account",
+        "object":
+            "whatsapp_business_account",
+
         "entry": [
             {
                 "changes": [
@@ -64,11 +192,18 @@ def test_extract_text_message():
                         "value": {
                             "messages": [
                                 {
-                                    "id": "msg-123",
-                                    "from": TEST_PHONE,
-                                    "type": "text",
+                                    "id":
+                                        "msg-123",
+
+                                    "from":
+                                        TEST_PHONE,
+
+                                    "type":
+                                        "text",
+
                                     "text": {
-                                        "body": "What disease is this?"
+                                        "body":
+                                            "What disease is this?"
                                     },
                                 }
                             ]
@@ -83,32 +218,44 @@ def test_extract_text_message():
         payload
     )
 
-    assert len(messages) == 1
+    assert len(
+        messages
+    ) == 1
 
     assert (
-        messages[0]["message_id"]
+        messages[0][
+            "message_id"
+        ]
         == "msg-123"
     )
 
     assert (
-        messages[0]["from"]
+        messages[0][
+            "from"
+        ]
         == TEST_PHONE
     )
 
     assert (
-        messages[0]["type"]
+        messages[0][
+            "type"
+        ]
         == "text"
     )
 
     assert (
-        messages[0]["text"]
+        messages[0][
+            "text"
+        ]
         == "What disease is this?"
     )
 
 
 def test_extract_image_message():
     payload = {
-        "object": "whatsapp_business_account",
+        "object":
+            "whatsapp_business_account",
+
         "entry": [
             {
                 "changes": [
@@ -116,13 +263,24 @@ def test_extract_image_message():
                         "value": {
                             "messages": [
                                 {
-                                    "id": "msg-456",
-                                    "from": TEST_PHONE,
-                                    "type": "image",
+                                    "id":
+                                        "msg-456",
+
+                                    "from":
+                                        TEST_PHONE,
+
+                                    "type":
+                                        "image",
+
                                     "image": {
-                                        "id": "media-123",
-                                        "mime_type": "image/jpeg",
-                                        "caption": "Please check this leaf",
+                                        "id":
+                                            "media-123",
+
+                                        "mime_type":
+                                            "image/jpeg",
+
+                                        "caption":
+                                            "Please check this leaf",
                                     },
                                 }
                             ]
@@ -137,42 +295,58 @@ def test_extract_image_message():
         payload
     )
 
-    assert len(messages) == 1
+    assert len(
+        messages
+    ) == 1
 
     assert (
-        messages[0]["message_id"]
+        messages[0][
+            "message_id"
+        ]
         == "msg-456"
     )
 
     assert (
-        messages[0]["from"]
+        messages[0][
+            "from"
+        ]
         == TEST_PHONE
     )
 
     assert (
-        messages[0]["type"]
+        messages[0][
+            "type"
+        ]
         == "image"
     )
 
     assert (
-        messages[0]["media_id"]
+        messages[0][
+            "media_id"
+        ]
         == "media-123"
     )
 
     assert (
-        messages[0]["mime_type"]
+        messages[0][
+            "mime_type"
+        ]
         == "image/jpeg"
     )
 
     assert (
-        messages[0]["caption"]
+        messages[0][
+            "caption"
+        ]
         == "Please check this leaf"
     )
 
 
 def test_extract_empty_payload():
     payload = {
-        "object": "whatsapp_business_account",
+        "object":
+            "whatsapp_business_account",
+
         "entry": [],
     }
 
@@ -183,37 +357,45 @@ def test_extract_empty_payload():
     assert messages == []
 
 
+# ============================================================
+# VALID SIGNED WEBHOOK
+# ============================================================
+
+
 @pytest.mark.asyncio
-async def test_whatsapp_webhook_accepts_payload(
+async def test_whatsapp_webhook_accepts_signed_payload(
     monkeypatch,
 ):
     """
-    Current webhook behavior:
+    A correctly signed Meta payload should:
 
-    - accept incoming Meta payload
-    - claim message ID
-    - schedule processing
-    - return 200 quickly
-
-    The response no longer echoes raw messages.
+    - pass webhook authentication;
+    - claim the message ID;
+    - schedule processing;
+    - return HTTP 200.
     """
 
     async def fake_process_message(
         message,
     ):
         """
-        Avoid real Gemini / WhatsApp calls in this test.
+        Avoid real Gemini / WhatsApp calls.
         """
 
         return None
 
     monkeypatch.setattr(
-        "app.main.whatsapp_processor.process_message",
+        (
+            "app.main.whatsapp_processor"
+            ".process_message"
+        ),
         fake_process_message,
     )
 
     payload = {
-        "object": "whatsapp_business_account",
+        "object":
+            "whatsapp_business_account",
+
         "entry": [
             {
                 "changes": [
@@ -221,11 +403,18 @@ async def test_whatsapp_webhook_accepts_payload(
                         "value": {
                             "messages": [
                                 {
-                                    "id": TEST_MESSAGE_ID,
-                                    "from": TEST_PHONE,
-                                    "type": "text",
+                                    "id":
+                                        TEST_MESSAGE_ID,
+
+                                    "from":
+                                        TEST_PHONE,
+
+                                    "type":
+                                        "text",
+
                                     "text": {
-                                        "body": "Hello KILIMO"
+                                        "body":
+                                            "Hello KILIMO"
                                     },
                                 }
                             ]
@@ -245,45 +434,63 @@ async def test_whatsapp_webhook_accepts_payload(
         base_url="http://test",
     ) as client:
 
-        response = await client.post(
-            "/webhook/whatsapp",
-            json=payload,
+        response = (
+            await post_signed_webhook(
+                client,
+                payload,
+            )
         )
 
-    assert response.status_code == 200
+    assert (
+        response.status_code
+        == 200
+    )
 
     data = response.json()
 
     assert (
-        data["status"]
+        data[
+            "status"
+        ]
         == "received"
     )
 
     assert (
-        data["message_count"]
+        data[
+            "message_count"
+        ]
         == 1
     )
 
     assert (
-        data["scheduled_count"]
+        data[
+            "scheduled_count"
+        ]
         == 1
     )
 
     assert (
-        data["duplicate_count"]
+        data[
+            "duplicate_count"
+        ]
         == 0
     )
 
     assert (
-        data["status_count"]
+        data[
+            "status_count"
+        ]
         == 0
     )
 
-    # Confirm message was claimed in the database.
+    # --------------------------------------------------------
+    # Confirm the message was claimed in PostgreSQL.
+    # --------------------------------------------------------
 
     pool = await get_pool()
 
     async with pool.acquire() as conn:
+
         row = await conn.fetchrow(
             """
             SELECT
@@ -291,7 +498,9 @@ async def test_whatsapp_webhook_accepts_payload(
                 phone_number,
                 message_type,
                 status
+
             FROM whatsapp_messages
+
             WHERE message_id = $1
             """,
             TEST_MESSAGE_ID,
@@ -300,35 +509,50 @@ async def test_whatsapp_webhook_accepts_payload(
     assert row is not None
 
     assert (
-        row["message_id"]
+        row[
+            "message_id"
+        ]
         == TEST_MESSAGE_ID
     )
 
     assert (
-        row["phone_number"]
+        row[
+            "phone_number"
+        ]
         == TEST_PHONE
     )
 
     assert (
-        row["message_type"]
+        row[
+            "message_type"
+        ]
         == "text"
     )
 
-    # Because the processing function is mocked, the record
-    # remains in its initially claimed state.
+    # The processor is mocked, so the record remains in the
+    # initially claimed processing state.
 
     assert (
-        row["status"]
+        row[
+            "status"
+        ]
         == "processing"
     )
 
 
+# ============================================================
+# IDEMPOTENCY WITH SIGNED DELIVERY
+# ============================================================
+
+
 @pytest.mark.asyncio
-async def test_whatsapp_webhook_ignores_duplicate_message(
+async def test_whatsapp_webhook_ignores_duplicate_signed_message(
     monkeypatch,
 ):
     """
-    The same Meta message ID must not be scheduled twice.
+    Meta may redeliver an authenticated webhook.
+
+    The same WhatsApp message ID must not be scheduled twice.
     """
 
     async def fake_process_message(
@@ -337,12 +561,17 @@ async def test_whatsapp_webhook_ignores_duplicate_message(
         return None
 
     monkeypatch.setattr(
-        "app.main.whatsapp_processor.process_message",
+        (
+            "app.main.whatsapp_processor"
+            ".process_message"
+        ),
         fake_process_message,
     )
 
     payload = {
-        "object": "whatsapp_business_account",
+        "object":
+            "whatsapp_business_account",
+
         "entry": [
             {
                 "changes": [
@@ -350,11 +579,18 @@ async def test_whatsapp_webhook_ignores_duplicate_message(
                         "value": {
                             "messages": [
                                 {
-                                    "id": TEST_MESSAGE_ID,
-                                    "from": TEST_PHONE,
-                                    "type": "text",
+                                    "id":
+                                        TEST_MESSAGE_ID,
+
+                                    "from":
+                                        TEST_PHONE,
+
+                                    "type":
+                                        "text",
+
                                     "text": {
-                                        "body": "Hello KILIMO"
+                                        "body":
+                                            "Hello KILIMO"
                                     },
                                 }
                             ]
@@ -374,14 +610,18 @@ async def test_whatsapp_webhook_ignores_duplicate_message(
         base_url="http://test",
     ) as client:
 
-        first_response = await client.post(
-            "/webhook/whatsapp",
-            json=payload,
+        first_response = (
+            await post_signed_webhook(
+                client,
+                payload,
+            )
         )
 
-        second_response = await client.post(
-            "/webhook/whatsapp",
-            json=payload,
+        second_response = (
+            await post_signed_webhook(
+                client,
+                payload,
+            )
         )
 
     assert (
@@ -394,32 +634,58 @@ async def test_whatsapp_webhook_ignores_duplicate_message(
         == 200
     )
 
-    first_data = first_response.json()
-    second_data = second_response.json()
+    first_data = (
+        first_response.json()
+    )
+
+    second_data = (
+        second_response.json()
+    )
 
     assert (
-        first_data["scheduled_count"]
+        first_data[
+            "scheduled_count"
+        ]
         == 1
     )
 
     assert (
-        first_data["duplicate_count"]
+        first_data[
+            "duplicate_count"
+        ]
         == 0
     )
 
     assert (
-        second_data["scheduled_count"]
+        second_data[
+            "scheduled_count"
+        ]
         == 0
     )
 
     assert (
-        second_data["duplicate_count"]
+        second_data[
+            "duplicate_count"
+        ]
         == 1
     )
+
+
+# ============================================================
+# MISSING SIGNATURE
+# ============================================================
 
 
 @pytest.mark.asyncio
-async def test_whatsapp_webhook_rejects_invalid_json():
+async def test_whatsapp_webhook_rejects_missing_signature():
+
+    payload = {
+        "object":
+            "whatsapp_business_account",
+
+        "entry": [],
+    }
+
     transport = ASGITransport(
         app=app
     )
@@ -431,15 +697,204 @@ async def test_whatsapp_webhook_rejects_invalid_json():
 
         response = await client.post(
             "/webhook/whatsapp",
-            content=b"not-json",
+            json=payload,
+        )
+
+    assert (
+        response.status_code
+        == 401
+    )
+
+    assert (
+        response.json()[
+            "detail"
+        ]
+        == "Invalid webhook signature."
+    )
+
+
+# ============================================================
+# INCORRECT SIGNATURE
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_webhook_rejects_wrong_signature():
+
+    raw_body = encode_payload(
+        {
+            "object":
+                "whatsapp_business_account",
+
+            "entry": [],
+        }
+    )
+
+    wrong_signature = make_signature(
+        raw_body,
+        secret="incorrect-secret",
+    )
+
+    transport = ASGITransport(
+        app=app
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+
+        response = await client.post(
+            "/webhook/whatsapp",
+            content=raw_body,
             headers={
-                "Content-Type": "application/json",
+                "Content-Type":
+                    "application/json",
+
+                "X-Hub-Signature-256":
+                    wrong_signature,
             },
         )
 
-    assert response.status_code == 400
+    assert (
+        response.status_code
+        == 401
+    )
+
+
+# ============================================================
+# TAMPERED BODY
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_webhook_rejects_tampered_payload():
+
+    original_body = encode_payload(
+        {
+            "object":
+                "whatsapp_business_account",
+
+            "entry": [],
+        }
+    )
+
+    signature = make_signature(
+        original_body
+    )
+
+    # Change the body after signing it.
+    tampered_body = encode_payload(
+        {
+            "object":
+                "whatsapp_business_account",
+
+            "entry": [
+                {
+                    "tampered":
+                        True
+                }
+            ],
+        }
+    )
+
+    transport = ASGITransport(
+        app=app
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+
+        response = await client.post(
+            "/webhook/whatsapp",
+            content=tampered_body,
+            headers={
+                "Content-Type":
+                    "application/json",
+
+                "X-Hub-Signature-256":
+                    signature,
+            },
+        )
+
+    assert (
+        response.status_code
+        == 401
+    )
+
+
+# ============================================================
+# SIGNED INVALID JSON
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_webhook_rejects_signed_invalid_json():
+
+    raw_body = (
+        b"not-json"
+    )
+
+    signature = make_signature(
+        raw_body
+    )
+
+    transport = ASGITransport(
+        app=app
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+
+        response = await client.post(
+            "/webhook/whatsapp",
+            content=raw_body,
+            headers={
+                "Content-Type":
+                    "application/json",
+
+                "X-Hub-Signature-256":
+                    signature,
+            },
+        )
+
+    assert (
+        response.status_code
+        == 400
+    )
 
     assert (
         "Invalid JSON payload"
-        in response.json()["detail"]
+        in response.json()[
+            "detail"
+        ]
+    )
+
+@pytest.mark.asyncio
+async def test_public_whatsapp_send_test_endpoint_is_removed():
+
+    transport = ASGITransport(
+        app=app
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+
+        response = await client.post(
+            "/test-whatsapp-send",
+            params={
+                "phone_number":
+                    TEST_PHONE,
+            },
+        )
+
+    assert (
+        response.status_code
+        == 404
     )

@@ -16,7 +16,10 @@ a clear tomato leaf image for disease identification.
 """
 
 from __future__ import annotations
+import logging
 
+
+logger = logging.getLogger(__name__)
 import asyncio
 import json
 from typing import Any
@@ -147,8 +150,8 @@ farmer specifically requests more detail.
                 )
 
             except Exception as exc:
-                print(
-                    f"[RAG] Retrieval failed: {exc}"
+                logger.warning(
+                    "RAG retrieval failed; continuing without retrieved context."
                 )
                 retrieved_chunks = []
 
@@ -183,11 +186,9 @@ farmer specifically requests more detail.
             )
 
         except Exception as primary_error:
-            print(
-                f"[Gemini] Primary model failed "
-                f"({self.primary_model}): {primary_error}"
+            logger.warning(
+                "Primary Gemini model failed; attempting fallback model."
             )
-
             if self.fallback_model == self.primary_model:
                 raise
 
@@ -199,9 +200,7 @@ farmer specifically requests more detail.
 
             except Exception as fallback_error:
                 raise RuntimeError(
-                    "Both Gemini models failed. "
-                    f"Primary: {primary_error}. "
-                    f"Fallback: {fallback_error}."
+                    "Both configured Gemini models failed."
                 ) from fallback_error
 
     # =========================================================
@@ -275,7 +274,7 @@ farmer specifically requests more detail.
                     None,
                 )
 
-                print(
+                logger.debug(
                     f"[Gemini] model={model}, "
                     f"finish_reason={finish_reason}"
                 )
@@ -287,7 +286,7 @@ farmer specifically requests more detail.
             )
 
             if usage:
-                print(
+                logger.debug(
                     "[Gemini] "
                     f"prompt_tokens="
                     f"{getattr(usage, 'prompt_token_count', None)}, "
@@ -299,10 +298,9 @@ farmer specifically requests more detail.
                     f"{getattr(usage, 'total_token_count', None)}"
                 )
 
-        except Exception as exc:
-            print(
-                f"[Gemini] Could not inspect "
-                f"generation metadata: {exc}"
+        except Exception:
+            logger.debug(
+                "Gemini generation metadata could not be inspected."
             )
 
         return response.text.strip()

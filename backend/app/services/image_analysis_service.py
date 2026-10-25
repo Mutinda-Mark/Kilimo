@@ -5,15 +5,21 @@ Used by:
 - POST /predict
 - WhatsApp image messages
 
-Responsibilities:
+Pipeline:
 1. Create/retrieve farmer session
 2. Save image/question history
-3. Run CV assessment
-4. Generate structured advisory
-5. Save full assessment context
-6. Retrieve conversation context
-7. Generate RAG/Gemini response
-8. Save system response
+3. Validate technical image quality
+4. Validate whether the image contains a supported tomato leaf
+5. Run tomato disease assessment
+6. Generate structured advisory
+7. Save full assessment context
+8. Retrieve conversation context
+9. Generate RAG/Gemini response
+10. Save system response
+
+Important safety rule:
+Disease inference must only run after both the image-quality gate
+and tomato-subject gate have accepted the image.
 """
 
 from __future__ import annotations
@@ -23,9 +29,11 @@ from typing import Any
 
 from PIL import Image
 
-from app.services.session_service import SessionService
 from app.services.assessment_service import AssessmentService
+from app.services.session_service import SessionService
 from cv.assessor import TomatoAssessor
+from cv.image_quality import evaluate_image_quality
+from cv.subject_validator import TomatoSubjectValidator
 from nlp.advisory import AdvisoryEngine
 from nlp.responder import AdvisoryResponder
 
@@ -40,12 +48,14 @@ class ImageAnalysisService:
         advisory_responder: AdvisoryResponder,
         session_service: SessionService,
         assessment_service: AssessmentService,
+        subject_validator: TomatoSubjectValidator,
     ) -> None:
         self.assessor = assessor
         self.advisory_engine = advisory_engine
         self.advisory_responder = advisory_responder
         self.session_service = session_service
         self.assessment_service = assessment_service
+        self.subject_validator = subject_validator
 
     async def process_image(
         self,
@@ -54,30 +64,18 @@ class ImageAnalysisService:
         question: str | None = None,
         image_history_content: str | None = None,
         source: str = "api",
+        file_size_bytes: int | None = None,
+        mime_type: str | None = None,
     ) -> dict[str, Any]:
         """
         Run the complete tomato image assessment pipeline.
 
-        Args:
-            image:
-                PIL RGB image.
+        Returns a dictionary containing the quality result,
+        subject-validation result, disease prediction, severity,
+        advisory, response, assessment ID, and session metadata.
 
-            phone_number:
-                Optional farmer phone number.
-
-            question:
-                Optional farmer question/caption.
-
-            image_history_content:
-                Text stored alongside the image event in history.
-
-        Returns:
-            Dictionary containing:
-            - prediction
-            - severity
-            - advisory
-            - response
-            - session
+        Images rejected by either pre-inference gate never reach
+        TomatoAssessor.
         """
 
         normalized_phone: str | None = None
@@ -106,7 +104,7 @@ class ImageAnalysisService:
 
             image_content = (
                 image_history_content
-                or "Farmer uploaded a tomato leaf image."
+                or "Farmer uploaded an image for assessment."
             )
 
             await self.session_service.save_message(
@@ -125,7 +123,155 @@ class ImageAnalysisService:
                 )
 
         # =====================================================
-        # 3. Computer vision assessment
+        # 3. Image-quality validation
+        # =====================================================
+
+        quality_result = evaluate_image_quality(
+            image,
+            file_size_bytes=file_size_bytes,
+            mime_type=mime_type,
+        )
+
+        quality_data = quality_result.to_dict()
+
+        if not quality_result.accepted:
+
+            rejection_message = quality_result.message
+
+            if normalized_phone is not None:
+                await self.session_service.save_message(
+                    normalized_phone,
+                    role="system",
+                    message_type="text",
+                    content=rejection_message,
+                )
+
+            # IMPORTANT:
+            # Return before subject validation and disease
+            # inference are attempted.
+            return {
+                "status": "rejected",
+                "quality": quality_data,
+                "subject_validation": None,
+                "prediction": None,
+                "severity": None,
+                "advisory": None,
+                "response": rejection_message,
+                "assessment_id": None,
+                "session": {
+                    "phone_number":
+                        normalized_phone,
+
+                    "enabled":
+                        normalized_phone is not None,
+                },
+            }
+
+        # =====================================================
+        # 4. Tomato-subject validation
+        # =====================================================
+
+        try:
+            subject_result = self.subject_validator.validate(
+                image
+            )
+
+            subject_data = subject_result.to_dict()
+
+        except (FileNotFoundError, RuntimeError):
+
+            # Fail closed.
+            #
+            # If the subject-validation model cannot be loaded,
+            # KILIMO must not bypass the gate and send an
+            # unchecked image to the disease classifier.
+
+            subject_data = {
+                "accepted": False,
+                "status": "unavailable",
+                "reason": "subject_validator_unavailable",
+                "message": (
+                    "Image assessment is temporarily unavailable "
+                    "because the tomato-image validation service "
+                    "could not be loaded. Please try again later."
+                ),
+                "tomato_score": None,
+                "unsupported_threshold": None,
+                "supported_threshold": None,
+                "model_available": False,
+            }
+
+            rejection_message = subject_data[
+                "message"
+            ]
+
+            if normalized_phone is not None:
+                await self.session_service.save_message(
+                    normalized_phone,
+                    role="system",
+                    message_type="text",
+                    content=rejection_message,
+                )
+
+            return {
+                "status": "rejected",
+                "quality": quality_data,
+                "subject_validation": subject_data,
+                "prediction": None,
+                "severity": None,
+                "advisory": None,
+                "response": rejection_message,
+                "assessment_id": None,
+                "session": {
+                    "phone_number":
+                        normalized_phone,
+
+                    "enabled":
+                        normalized_phone is not None,
+                },
+            }
+
+        # -----------------------------------------------------
+        # Unsupported or uncertain images stop here.
+        # -----------------------------------------------------
+
+        if not subject_result.accepted:
+
+            rejection_message = (
+                subject_result.message
+            )
+
+            if normalized_phone is not None:
+                await self.session_service.save_message(
+                    normalized_phone,
+                    role="system",
+                    message_type="text",
+                    content=rejection_message,
+                )
+
+            # IMPORTANT:
+            # Return before TomatoAssessor, Grad-CAM, advisory
+            # generation, or assessment persistence.
+            return {
+                "status": "rejected",
+                "quality": quality_data,
+                "subject_validation": subject_data,
+                "prediction": None,
+                "severity": None,
+                "advisory": None,
+                "response": rejection_message,
+                "assessment_id": None,
+                "session": {
+                    "phone_number":
+                        normalized_phone,
+
+                    "enabled":
+                        normalized_phone is not None,
+                },
+            }
+
+        # =====================================================
+        # 5. Tomato disease assessment
         # =====================================================
 
         assessment = self.assessor.assess(
@@ -133,23 +279,28 @@ class ImageAnalysisService:
         )
 
         assessment_data = assessment.to_dict()
+
         # =====================================================
         # Normalize Healthy predictions
         # =====================================================
         #
-        # Severity and affected-area estimation are disease-oriented
-        # measurements. If the classifier predicts Healthy, the
-        # Grad-CAM activation should not be presented as diseased
-        # leaf area.
+        # Severity and affected-area estimation are
+        # disease-oriented measurements. If the classifier
+        # predicts Healthy, Grad-CAM activation should not be
+        # presented as diseased leaf area.
 
         if assessment_data["disease"] == "Healthy":
             assessment_data["severity_level"] = "None"
             assessment_data["affected_area_percentage"] = 0.0
+
         # =====================================================
-        # Save historical assessment
+        # 6. Save historical assessment
         # =====================================================
 
-        source = (source or "api").strip().lower()
+        source = (
+            source
+            or "api"
+        ).strip().lower()
 
         if source not in {
             "api",
@@ -166,7 +317,7 @@ class ImageAnalysisService:
         )
 
         # =====================================================
-        # 4. Structured advisory
+        # 7. Structured advisory
         # =====================================================
 
         advisory = self.advisory_engine.generate(
@@ -174,61 +325,71 @@ class ImageAnalysisService:
         )
 
         # =====================================================
-        # 5. Save full assessment into session
+        # 8. Save full assessment into session
         # =====================================================
 
         if normalized_phone is not None:
 
             full_assessment_context = {
-                "disease": assessment_data[
-                    "disease"
-                ],
+                "disease":
+                    assessment_data[
+                        "disease"
+                    ],
 
-                "confidence": assessment_data[
-                    "confidence"
-                ],
+                "confidence":
+                    assessment_data[
+                        "confidence"
+                    ],
 
-                "severity": assessment_data[
-                    "severity_level"
-                ],
+                "severity":
+                    assessment_data[
+                        "severity_level"
+                    ],
 
                 "affected_area_percentage":
                     assessment_data[
                         "affected_area_percentage"
                     ],
 
-                "label_index": assessment_data[
-                    "label_index"
-                ],
+                "label_index":
+                    assessment_data[
+                        "label_index"
+                    ],
 
-                "all_scores": assessment_data[
-                    "all_scores"
-                ],
+                "all_scores":
+                    assessment_data[
+                        "all_scores"
+                    ],
 
-                # Advisory information
-                "description": advisory[
-                    "description"
-                ],
+                "description":
+                    advisory[
+                        "description"
+                    ],
 
-                "symptoms": advisory[
-                    "symptoms"
-                ],
+                "symptoms":
+                    advisory[
+                        "symptoms"
+                    ],
 
-                "recommended_actions": advisory[
-                    "recommended_actions"
-                ],
+                "recommended_actions":
+                    advisory[
+                        "recommended_actions"
+                    ],
 
-                "prevention": advisory[
-                    "prevention"
-                ],
+                "prevention":
+                    advisory[
+                        "prevention"
+                    ],
 
-                "confidence_message": advisory[
-                    "confidence_message"
-                ],
+                "confidence_message":
+                    advisory[
+                        "confidence_message"
+                    ],
 
-                "urgency": advisory[
-                    "urgency"
-                ],
+                "urgency":
+                    advisory[
+                        "urgency"
+                    ],
             }
 
             await self.session_service.update_session(
@@ -252,7 +413,7 @@ class ImageAnalysisService:
             )
 
         # =====================================================
-        # 6. Retrieve conversation/session context
+        # 9. Retrieve conversation/session context
         # =====================================================
 
         conversation_history = None
@@ -292,7 +453,7 @@ class ImageAnalysisService:
             )
 
         # =====================================================
-        # 7. Natural-language response
+        # 10. Natural-language response
         # =====================================================
 
         response_text = (
@@ -305,7 +466,8 @@ class ImageAnalysisService:
         )
 
         response_text = (
-            response_text or ""
+            response_text
+            or ""
         ).strip()
 
         if not response_text:
@@ -314,7 +476,7 @@ class ImageAnalysisService:
             )
 
         # =====================================================
-        # 8. Save system response
+        # 11. Save system response
         # =====================================================
 
         if normalized_phone is not None:
@@ -327,11 +489,21 @@ class ImageAnalysisService:
             )
 
         # =====================================================
-        # 9. Return common result
+        # 12. Return common result
         # =====================================================
 
         return {
-            "assessment_id": assessment_id,
+            "status": "completed",
+
+            "quality":
+                quality_data,
+
+            "subject_validation":
+                subject_data,
+
+            "assessment_id":
+                assessment_id,
+
             "prediction": {
                 "disease":
                     assessment_data[
@@ -366,16 +538,17 @@ class ImageAnalysisService:
                     ],
             },
 
-            "advisory": advisory,
+            "advisory":
+                advisory,
 
-            "response": response_text,
+            "response":
+                response_text,
 
             "session": {
                 "phone_number":
                     normalized_phone,
 
                 "enabled":
-                    normalized_phone
-                    is not None,
+                    normalized_phone is not None,
             },
         }
