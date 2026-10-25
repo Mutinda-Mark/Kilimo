@@ -25,7 +25,7 @@ import logging
 import time
 
 
-logger = logging.getLogger(__name__)
+
 from io import BytesIO
 from typing import Any
 
@@ -48,7 +48,7 @@ from app.services.whatsapp_event_service import (
 )
 from app.whatsapp.service import WhatsAppService
 from cv.image_quality import evaluate_image_quality
-
+logger = logging.getLogger(__name__)
 
 class WhatsAppProcessor:
     """
@@ -437,7 +437,7 @@ class WhatsAppProcessor:
         # -----------------------------------------------------
         download_started = time.monotonic()
 
-        logger.warning(
+        logger.info(
             "[WhatsApp][Image] Starting Meta media download."
         )
 
@@ -456,7 +456,7 @@ class WhatsAppProcessor:
         # -----------------------------------------------------
         decode_started = time.monotonic()
 
-        logger.warning(
+        logger.info(
             "[WhatsApp][Image] Starting image decode."
         )
         try:
@@ -497,7 +497,7 @@ class WhatsAppProcessor:
             or mime_type
             or None
         )
-        logger.warning(
+        logger.info(
             "[WhatsApp][Image] Image decode completed in %.2fs.",
             time.monotonic() - decode_started,
         )
@@ -508,7 +508,7 @@ class WhatsAppProcessor:
         
         quality_started = time.monotonic()
 
-        logger.warning(
+        logger.info(
             "[WhatsApp][Image] Starting image quality validation."
         )
 
@@ -531,7 +531,7 @@ class WhatsAppProcessor:
             )
 
             return
-        logger.warning(
+        logger.info(
             "[WhatsApp][Image] Image quality validation completed in %.2fs.",
             time.monotonic() - quality_started,
         )
@@ -541,7 +541,7 @@ class WhatsAppProcessor:
         # =====================================================
         subject_started = time.monotonic()
 
-        logger.warning(
+        logger.info(
             "[WhatsApp][Image] Starting tomato subject validation."
         )
         try:
@@ -571,7 +571,7 @@ class WhatsAppProcessor:
             )
 
             return
-        logger.warning(
+        logger.info(
             "[WhatsApp][Image] Subject validation completed in %.2fs.",
             time.monotonic() - subject_started,
         )
@@ -595,7 +595,7 @@ class WhatsAppProcessor:
         # =====================================================
         batch_started = time.monotonic()
 
-        logger.warning(
+        logger.info(
             "[WhatsApp][Image] Starting batch persistence."
         )
         batch = (
@@ -674,7 +674,7 @@ class WhatsAppProcessor:
                 return
 
             raise
-        logger.warning(
+        logger.info(
             "[WhatsApp][Image] Batch persistence completed in %.2fs.",
             time.monotonic() - batch_started,
         )
@@ -1275,7 +1275,7 @@ class WhatsAppProcessor:
                     batch_id
                 )
 
-            except Exception as cleanup_exc:
+            except Exception:
 
                 logger.warning(
                     "[WhatsApp] Could not clean up a failed image batch. "
