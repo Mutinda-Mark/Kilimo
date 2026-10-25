@@ -7,7 +7,7 @@ name: Build and deploy Python app to Azure Web App - kilimo-backend-mark
 on:
   push:
     branches:
-      - 'sprint-iii/input-validation'
+      - 'main'
   workflow_dispatch:
 
 jobs:
