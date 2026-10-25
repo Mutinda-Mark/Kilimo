@@ -156,7 +156,6 @@ async def test_health_does_not_expose_environment(
             "database unavailable"
         )
 
-
     monkeypatch.setattr(
         main_module,
         "get_pool",
@@ -181,8 +180,8 @@ async def test_health_does_not_expose_environment(
     body = response.json()
 
     assert body == {
-        "status": "degraded"
+        "status": "ok"
     }
 
-    assert "database" not in body
     assert "environment" not in body
+    assert "database" not in body

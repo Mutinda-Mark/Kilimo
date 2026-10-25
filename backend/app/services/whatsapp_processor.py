@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,11 @@ class WhatsAppProcessor:
         The message must already have been claimed through
         WhatsAppEventService.
         """
+        processing_started = time.monotonic()
+
+        logger.info(
+            "[WhatsApp] Processing started."
+        )
 
         message_id = (
             message.get("message_id")
@@ -162,24 +168,16 @@ class WhatsAppProcessor:
                 message_id
             )
 
+            logger.info(
+                "[WhatsApp] Processing completed in %.2fs",
+                time.monotonic() - processing_started,
+            )
+
         except Exception as exc:
 
             logger.error(
-                "========== WHATSAPP PROCESSING ERROR =========="
-            )
-
-            logger.error(
-                f"Message ID: {message_id}"
-            )
-
-            logger.error(
-                repr(
-                    exc
-                )
-            )
-
-            logger.error(
-                "=============================================="
+                "[WhatsApp] Message processing failed after %.2fs.",
+                time.monotonic() - processing_started,
             )
 
             if message_id:
@@ -193,7 +191,7 @@ class WhatsAppProcessor:
                         ),
                     )
 
-                except Exception as db_exc:
+                except Exception:
 
                     logger.error(
                         "Could not update failed WhatsApp event state."
@@ -212,7 +210,7 @@ class WhatsAppProcessor:
                         ),
                     )
 
-                except Exception as send_exc:
+                except Exception:
 
                     logger.error(
                         "Could not send WhatsApp fallback response."
@@ -258,6 +256,8 @@ class WhatsAppProcessor:
         # Normal farmer question
         # -----------------------------------------------------
 
+        stage_started = time.monotonic()
+
         result = (
             await self.chat_service.process_message(
                 phone_number=sender,
@@ -265,19 +265,29 @@ class WhatsAppProcessor:
             )
         )
 
+        logger.info(
+            "[WhatsApp] Text processing completed in %.2fs.",
+            time.monotonic() - stage_started,
+        )
+
         response_text = result[
             "response"
         ]
 
-        send_result = (
-            await self.whatsapp_service.send_text_message(
-                to=sender,
-                text=response_text,
-            )
+        send_started = time.monotonic()
+
+        await self.whatsapp_service.send_text_message(
+            to=sender,
+            text=response_text,
         )
 
         logger.info(
-            "WhatsApp Text response sent successfully."
+            "[WhatsApp] Outbound text send completed in %.2fs.",
+            time.monotonic() - send_started,
+        )
+
+        logger.info(
+            "WhatsApp text response sent successfully."
         )
 
     # =========================================================
@@ -415,6 +425,7 @@ class WhatsAppProcessor:
         # -----------------------------------------------------
         # Download from Meta
         # -----------------------------------------------------
+        download_started = time.monotonic()
 
         media = (
             await self.whatsapp_service.download_media(
@@ -422,9 +433,8 @@ class WhatsAppProcessor:
             )
         )
         logger.info(
-            "WhatsApp media downloaded: mime_type=%s, size_bytes=%s",
-            media.mime_type,
-            media.file_size,
+            "[WhatsApp] Media download completed in %.2fs.",
+            time.monotonic() - download_started,
         )
 
         # -----------------------------------------------------
@@ -497,7 +507,7 @@ class WhatsAppProcessor:
         # =====================================================
         # 2. TOMATO SUBJECT GATE
         # =====================================================
-
+        subject_started = time.monotonic()
         try:
 
             subject_result = (
@@ -507,6 +517,7 @@ class WhatsAppProcessor:
                     image
                 )
             )
+        
 
         except (
             FileNotFoundError,
@@ -524,6 +535,10 @@ class WhatsAppProcessor:
             )
 
             return
+        logger.info(
+            "[WhatsApp] Subject validation completed in %.2fs.",
+            time.monotonic() - subject_started,
+        )
 
         if not subject_result.accepted:
 
@@ -803,7 +818,7 @@ class WhatsAppProcessor:
             assessments: list[
                 dict[str, Any]
             ] = []
-
+            inference_started = time.monotonic()
             for batch_image in usable_images:
 
                 stored_bytes = batch_image.get(
@@ -855,6 +870,11 @@ class WhatsAppProcessor:
                 assessments.append(
                     assessment_data
                 )
+                logger.info(
+                    "[WhatsApp] Disease inference completed in %.2fs for %s image(s).",
+                    time.monotonic() - inference_started,
+                    len(usable_images),
+                )
 
             # =================================================
             # 2. AGGREGATION
@@ -901,9 +921,16 @@ class WhatsAppProcessor:
                     )
                 )
 
+                send_started = time.monotonic()
+
                 await self.whatsapp_service.send_text_message(
                     to=sender,
                     text=response_text,
+                )
+
+                logger.info(
+                    "[WhatsApp] Outbound text send completed in %.2fs.",
+                    time.monotonic() - send_started,
                 )
 
                 return
@@ -976,7 +1003,7 @@ class WhatsAppProcessor:
             # =================================================
             # 6. FARMER-FACING RESPONSE
             # =================================================
-
+            advisory_started = time.monotonic()
             response_text = (
                 await self.image_analysis_service
                 .advisory_responder
@@ -990,6 +1017,10 @@ class WhatsAppProcessor:
                         session_context
                     ),
                 )
+            )
+            logger.info(
+                "[WhatsApp] Advisory generation completed in %.2fs.",
+                time.monotonic() - advisory_started,
             )
 
             response_text = (
@@ -1173,15 +1204,14 @@ class WhatsAppProcessor:
             # =================================================
             # 12. SEND RESULT
             # =================================================
-
+            send_started = time.monotonic()
             await self.whatsapp_service.send_text_message(
                 to=sender,
                 text=response_text,
             )
             logger.info(
-                "Multi-image assessment completed successfully "
-                "using %s image(s).",
-                aggregation.image_count,
+                "[WhatsApp] Final assessment send completed in %.2fs.",
+                time.monotonic() - send_started,
             )
 
         except Exception:

@@ -367,19 +367,8 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    db_ok = False
-
-    try:
-        pool = await get_pool()
-
-        async with pool.acquire() as conn:
-            db_ok = (await conn.fetchval("SELECT 1")) == 1
-
-    except Exception:
-        db_ok = False
-
     return {
-        "status": "ok" if db_ok else "degraded"
+        "status": "ok"
     }
 
 
@@ -469,11 +458,15 @@ async def predict(
         ) from exc
 
     except Exception as exc:
+
+        logger.warning(
+            "Uploaded image could not be decoded."
+        )
+
         raise HTTPException(
             status_code=400,
             detail=(
-                "Could not process uploaded "
-                f"image: {exc}"
+                "Could not process uploaded image."
             ),
         ) from exc
 
