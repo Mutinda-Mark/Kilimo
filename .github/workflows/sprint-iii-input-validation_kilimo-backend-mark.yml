@@ -17,7 +17,24 @@ jobs:
       contents: read #This is required for actions/checkout
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository with Git LFS
+        uses: actions/checkout@v4
+        with:
+         lfs: true
+
+      - name: Pull Git LFS files
+        run: git lfs pull
+
+      - name: Verify production model files
+        shell: bash
+        run: |
+          echo "Production model files:"
+          ls -lh backend/cv/weights/best_model.pt
+          ls -lh backend/cv/weights/tomato_subject_validator.pt
+      
+          test $(stat -c%s backend/cv/weights/best_model.pt) -gt 10000000
+          test $(stat -c%s backend/cv/weights/tomato_subject_validator.pt) -gt 10000000
+        
 
       - name: Set up Python version
         uses: actions/setup-python@v5
