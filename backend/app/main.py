@@ -1,5 +1,9 @@
 import logging
 
+logging.getLogger("app").setLevel(
+    logging.INFO
+)
+
 logger = logging.getLogger(__name__)
 
 from contextlib import asynccontextmanager
@@ -251,7 +255,11 @@ async def receive_whatsapp_webhook(
     statuses = extract_statuses(
         payload
     )
-
+    logger.info(
+        "[WhatsApp] Webhook received: messages=%s, statuses=%s.",
+        len(messages),
+        len(statuses),
+    )
     # =========================================================
     # 5. Log outbound delivery statuses
     # =========================================================

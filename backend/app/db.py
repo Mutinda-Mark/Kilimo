@@ -62,22 +62,20 @@ async def get_pool() -> asyncpg.Pool:
     _pool = None
     _pool_loop = None
 
-    # If the old loop is still running, we can safely terminate
-    # the old pool.
+    # The existing pool belongs to a previous event loop.
     #
-    # If the old loop has already been closed, attempting to call
-    # old_pool.terminate() can itself raise:
-    #
-    # RuntimeError: Event loop is closed
-    #
-    # In that situation the old loop has already released control
-    # of the application, so we simply discard the stale pool.
-    if old_loop is not None and not old_loop.is_closed():
-        try:
-            old_pool.terminate()
-        except RuntimeError as exc:
-            if "Event loop is closed" not in str(exc):
-                raise
+    # Pool.terminate() is synchronous and immediately terminates
+    # the pool's underlying database connections. This is preferable
+    # here because the old event loop may already be closed, making
+    # an awaited graceful close impossible.
+    try:
+        old_pool.terminate()
+    except RuntimeError as exc:
+        # Some connection implementations may still interact with
+        # an already-closed event loop during termination. Do not
+        # hide unrelated RuntimeErrors.
+        if "Event loop is closed" not in str(exc):
+            raise
 
     # Create a new pool for the current event loop.
     _pool = await asyncpg.create_pool(
@@ -124,15 +122,9 @@ async def close_pool() -> None:
                 raise
         return
 
-    # The pool belongs to another event loop.
-    #
-    # If that loop is already closed, we cannot safely perform
-    # asyncpg cleanup through it. Simply discard the stale pool.
-    if pool_loop is None or pool_loop.is_closed():
-        return
-
-    # The other loop still exists, but it is not the current loop.
-    # Avoid trying to await operations on a different event loop.
+    # The pool belongs to another event loop, or that loop has
+    # already been closed. We cannot safely await pool.close()
+    # through that loop, so terminate its connections immediately.
     try:
         pool.terminate()
     except RuntimeError as exc:
