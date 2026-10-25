@@ -176,8 +176,9 @@ class WhatsAppProcessor:
         except Exception as exc:
 
             logger.error(
-                "[WhatsApp] Message processing failed after %.2fs.",
+                "[WhatsApp] Message processing failed after %.2fs. Exception type=%s.",
                 time.monotonic() - processing_started,
+                type(exc).__name__,
             )
 
             if message_id:
@@ -436,6 +437,10 @@ class WhatsAppProcessor:
         # -----------------------------------------------------
         download_started = time.monotonic()
 
+        logger.warning(
+            "[WhatsApp][Image] Starting Meta media download."
+        )
+
         media = (
             await self.whatsapp_service.download_media(
                 media_id
@@ -449,7 +454,11 @@ class WhatsAppProcessor:
         # -----------------------------------------------------
         # Decode image
         # -----------------------------------------------------
+        decode_started = time.monotonic()
 
+        logger.warning(
+            "[WhatsApp][Image] Starting image decode."
+        )
         try:
 
             with Image.open(
@@ -488,10 +497,20 @@ class WhatsAppProcessor:
             or mime_type
             or None
         )
+        logger.warning(
+            "[WhatsApp][Image] Image decode completed in %.2fs.",
+            time.monotonic() - decode_started,
+        )
 
         # =====================================================
         # 1. TECHNICAL QUALITY GATE
         # =====================================================
+        
+        quality_started = time.monotonic()
+
+        logger.warning(
+            "[WhatsApp][Image] Starting image quality validation."
+        )
 
         quality_result = evaluate_image_quality(
             image,
@@ -512,11 +531,19 @@ class WhatsAppProcessor:
             )
 
             return
+        logger.warning(
+            "[WhatsApp][Image] Image quality validation completed in %.2fs.",
+            time.monotonic() - quality_started,
+        )
 
         # =====================================================
         # 2. TOMATO SUBJECT GATE
         # =====================================================
         subject_started = time.monotonic()
+
+        logger.warning(
+            "[WhatsApp][Image] Starting tomato subject validation."
+        )
         try:
 
             subject_result = (
@@ -544,8 +571,8 @@ class WhatsAppProcessor:
             )
 
             return
-        logger.info(
-            "[WhatsApp] Subject validation completed in %.2fs.",
+        logger.warning(
+            "[WhatsApp][Image] Subject validation completed in %.2fs.",
             time.monotonic() - subject_started,
         )
 
@@ -566,7 +593,11 @@ class WhatsAppProcessor:
         # =====================================================
         # 3. GET / CREATE COLLECTING BATCH
         # =====================================================
+        batch_started = time.monotonic()
 
+        logger.warning(
+            "[WhatsApp][Image] Starting batch persistence."
+        )
         batch = (
             await self.batch_service
             .get_or_create_active_batch(
@@ -643,6 +674,10 @@ class WhatsAppProcessor:
                 return
 
             raise
+        logger.warning(
+            "[WhatsApp][Image] Batch persistence completed in %.2fs.",
+            time.monotonic() - batch_started,
+        )
 
         # -----------------------------------------------------
         # Save image/caption into conversation history
