@@ -1,37 +1,48 @@
 # KILIMO — Tomato Disease Detection and Farmer Advisory System
 
-KILIMO is a smartphone-based farmer advisory system for tomato disease detection using computer vision and natural language processing.
+KILIMO is a smartphone-based tomato disease detection and farmer advisory system developed using **computer vision**, **natural language processing**, and **cloud-based messaging technologies**.
 
-The system allows tomato farmers to interact through **WhatsApp** by sending tomato leaf images, text questions, or both. Submitted images are processed by a trained deep learning model to identify the likely tomato disease, estimate disease severity, and generate farmer-friendly advisory information.
+The system enables tomato farmers to interact through **WhatsApp** by submitting tomato leaf images and text-based questions. Submitted images pass through technical quality checks and tomato-subject validation before disease assessment.
 
-The system also supports contextual follow-up questions using a **Retrieval-Augmented Generation (RAG)** pipeline.
+KILIMO supports both **single-image and multi-image assessments**. A farmer may submit up to three usable tomato leaf images for one assessment, and the system aggregates the resulting predictions before generating a final disease assessment.
 
-An administrative dashboard is included for monitoring farmer sessions, disease assessments, conversations, analytics, WhatsApp processing, and overall system activity.
+The advisory component uses a **Retrieval-Augmented Generation (RAG)** pipeline together with **Google Gemini** to generate farmer-friendly responses grounded in agricultural knowledge and recent conversation context.
+
+A secure administrative dashboard provides access to farmer sessions, assessments, analytics, system status and operational information.
 
 ---
 
-## Project Overview
+# Project Overview
 
 KILIMO was developed as a final-year **BSc Informatics and Computer Science** project at **Strathmore University**.
 
-The system combines:
+The final system combines:
 
-- Computer Vision for tomato disease classification
-- EfficientNet-B0 transfer learning
-- Grad-CAM-based image interpretation
+- WhatsApp-based farmer interaction
+- Technical image-quality validation
+- Tomato-subject validation
+- Multi-image tomato assessment
+- EfficientNet-B0 disease classification
+- Grad-CAM-based model interpretation
 - Disease severity estimation
-- Retrieval-Augmented Generation (RAG)
-- Natural language response generation
-- WhatsApp Cloud API integration
-- PostgreSQL data persistence
+- Retrieval-Augmented Generation
+- Context-aware farmer interaction
+- Google Gemini response generation
+- PostgreSQL persistence
 - FastAPI backend services
 - Next.js administrative dashboard
+- Supabase database and administrator authentication
+- Google OAuth and TOTP MFA
+- Microsoft Azure App Service deployment
+- Vercel dashboard deployment
+- GitHub Actions CI/CD
+- Git LFS model artefact management
 
 ---
 
-## Core Workflow
+# Final System Architecture
 
-The main farmer workflow is:
+The deployed system follows the general workflow below:
 
 ```text
 Farmer
@@ -43,35 +54,78 @@ WhatsApp
 Meta WhatsApp Cloud API
   |
   v
-FastAPI Webhook
+Azure FastAPI Webhook
   |
   v
-Image / Text Processing
+Webhook Verification
   |
-  +---------------------------+
-  |                           |
-  v                           v
-Computer Vision           NLP / RAG
-  |                           |
-  v                           v
-Disease Prediction       Advisory Context
-  |                           |
-  +-------------+-------------+
-                |
-                v
-        Farmer Advisory Response
-                |
-                v
+  v
+Message Deduplication
+  |
+  v
+WhatsApp Processor
+  |
+  +------------------------------+
+  |                              |
+  v                              v
+Image Processing             Text Processing
+  |                              |
+  v                              v
+Image Quality Gate            Session Context
+  |                              |
+  v                              v
+Tomato Subject Validator      RAG Retrieval
+  |                              |
+  v                              v
+Multi-Image Batch             Gemini
+  |
+  v
+EfficientNet-B0
+  |
+  v
+Grad-CAM + Severity
+  |
+  v
+Multi-Image Aggregation
+  |
+  +--------------+---------------+
+                 |
+                 v
+          Farmer Advisory
+                 |
+                 v
+          PostgreSQL / Supabase
+                 |
+                 v
              WhatsApp
 ```
 
-Assessment results, conversations, farmer sessions, and system events are stored in PostgreSQL and can be monitored through the administrative dashboard.
+Administrative monitoring follows a separate protected path:
+
+```text
+Administrator
+     |
+     v
+Google OAuth
+     |
+     v
+TOTP MFA
+     |
+     v
+Vercel Next.js Dashboard
+     |
+     v
+Protected FastAPI Admin API
+     |
+     v
+PostgreSQL / Supabase
+```
 
 ---
 
-## Supported Tomato Classes
+# Supported Tomato Classes
 
-The computer vision model currently supports **11 classes**:
+The final disease-classification model supports **11 classes**:
 
 1. Bacterial Spot
 2. Early Blight
@@ -87,28 +141,218 @@ The computer vision model currently supports **11 classes**:
 
 ---
 
-## Computer Vision Model
+# Computer Vision Models
 
-The image classification component uses **EfficientNet-B0** with transfer learning.
+KILIMO uses multiple computer-vision components.
 
-Training was performed in two main phases:
+## Disease Classifier
 
-- **Phase A — Initial Training**
-- **Phase B — Fine-Tuning**
-
-The highest validation accuracy recorded during model development was approximately:
+The primary disease-classification model is:
 
 ```text
-98.79%
+EfficientNet-B0
 ```
 
-> **Note:** This value represents validation performance during model development and should not be interpreted as final held-out test accuracy.
+The model was trained using transfer learning and fine-tuned on labelled tomato disease images.
 
-The trained model weights are not stored directly in this Git repository.
+Recorded held-out performance:
+
+```text
+Accuracy: approximately 98.79%
+Macro F1-score: approximately 98.90%
+```
+
+EfficientNet-B0 was selected over MobileNetV3-Large because it achieved slightly stronger classification performance while remaining sufficiently efficient for the intended application.
+
+## Comparison Model
+
+A **MobileNetV3-Large** model was also trained for comparison.
+
+Recorded held-out performance:
+
+```text
+Accuracy: approximately 98.71%
+Macro F1-score: approximately 98.84%
+```
+
+MobileNetV3-Large achieved faster model-level inference, while EfficientNet-B0 achieved slightly stronger classification performance.
+
+## Tomato Subject Validator
+
+A separate **MobileNetV3-Small** binary classifier is used before disease classification.
+
+Its role is to determine whether a submitted image represents a supported tomato-leaf subject.
+
+The validator supports three practical outcomes:
+
+```text
+SUPPORTED
+UNCERTAIN
+UNSUPPORTED
+```
+
+The thresholds were selected conservatively because the main operational priority was to reduce unsupported images being accepted as valid tomato inputs.
 
 ---
 
-## Project Structure
+# Image Quality Validation
+
+Before an image reaches the machine-learning pipeline, KILIMO performs technical image-quality validation.
+
+Checks include:
+
+- Supported file format
+- Minimum image dimensions
+- File-size restrictions
+- Brightness
+- Blur
+- Image decoding validity
+
+Poor-quality images are rejected before disease inference.
+
+Rejected images do not consume one of the farmer's available assessment image slots.
+
+---
+
+# Multi-Image Assessment
+
+KILIMO supports up to **three usable tomato leaf images per assessment**.
+
+The farmer may:
+
+```text
+Send 1 image → reply DONE
+Send 2 images → reply DONE
+Send 3 images → assessment automatically starts
+```
+
+The `DONE` command allows the farmer to finalise an assessment early.
+
+## Aggregation Behaviour
+
+For one accepted image:
+
+```text
+The individual image result is used.
+```
+
+For two accepted images:
+
+```text
+The predictions must sufficiently agree.
+```
+
+For three accepted images:
+
+```text
+At least two predictions must agree.
+```
+
+Where sufficient agreement does not exist, KILIMO abstains from presenting a potentially misleading combined diagnosis.
+
+Only one combined assessment is stored for the final image batch.
+
+---
+
+# Disease Severity Estimation
+
+Grad-CAM is used to identify image regions contributing strongly to the predicted disease class.
+
+Image-processing heuristics then estimate the visible affected area and map the result to an advisory severity level.
+
+For images predicted as:
+
+```text
+Healthy
+```
+
+KILIMO normalises the result to:
+
+```text
+Severity: None
+Affected area: 0.0%
+```
+
+Severity estimates should be interpreted as advisory image-based estimates rather than laboratory-confirmed disease measurements.
+
+---
+
+# Natural Language Advisory and RAG
+
+The advisory pipeline combines:
+
+- Structured disease information
+- Farmer question
+- Previous assessment context
+- Recent conversation history
+- Semantic retrieval
+- Agricultural knowledge chunks
+- Google Gemini response generation
+
+A farmer can therefore ask follow-up questions such as:
+
+```text
+How can I stop it from spreading?
+
+How serious is it?
+
+What should I do next?
+
+How can I prevent this next season?
+```
+
+The farmer does not need to repeat the disease name after every message because session context is maintained in PostgreSQL.
+
+---
+
+# Farmer Conversation Example
+
+A typical multi-image interaction may look like:
+
+```text
+Farmer:
+[Uploads tomato leaf image]
+
+KILIMO:
+Photo 1 received and accepted.
+You can send up to 2 more usable photos
+or reply DONE to analyse the photos now.
+
+Farmer:
+[Uploads another image]
+
+KILIMO:
+Photo 2 received and accepted.
+You can send 1 more usable photo
+or reply DONE to analyse the photos now.
+
+Farmer:
+DONE
+
+KILIMO:
+Multi-image assessment (2/2 photos agreed):
+
+The images are most consistent with Early Blight.
+
+Severity: Moderate
+
+Recommended actions:
+- Remove badly affected leaves
+- Reduce prolonged leaf moisture
+- Monitor neighbouring tomato plants
+- Follow appropriate disease-management guidance
+
+Farmer:
+How do I stop it spreading?
+
+KILIMO:
+Provides a contextual response based on the
+previous assessment and retrieved agricultural knowledge.
+```
+
+---
+
+# Project Structure
 
 ```text
 Kilimo/
@@ -116,18 +360,24 @@ Kilimo/
 ├── backend/
 │   ├── app/
 │   │   ├── admin/
+│   │   ├── security/
 │   │   ├── services/
-│   │   └── whatsapp/
+│   │   ├── whatsapp/
+│   │   ├── config.py
+│   │   ├── db.py
+│   │   └── main.py
 │   │
 │   ├── cv/
+│   │   ├── weights/
 │   │   ├── assessor.py
 │   │   ├── config.py
 │   │   ├── gradcam.py
+│   │   ├── image_quality.py
 │   │   ├── model.py
 │   │   ├── predictor.py
-│   │   ├── segmentation.py
-│   │   ├── severity.py
-│   │   └── train_colab.ipynb
+│   │   ├── subject_validator.py
+│   │   ├── train_subject_validator.py
+│   │   └── prepare_subject_dataset.py
 │   │
 │   ├── nlp/
 │   │   ├── advisory.py
@@ -139,6 +389,7 @@ Kilimo/
 │   │
 │   ├── tests/
 │   ├── requirements.txt
+│   ├── .python-version
 │   └── .env.example
 │
 ├── admin-dashboard/
@@ -147,32 +398,45 @@ Kilimo/
 │   │   ├── components/
 │   │   ├── hooks/
 │   │   └── lib/
-│   │
 │   ├── public/
 │   ├── package.json
 │   └── .env.local.example
 │
+├── docs/
+├── .github/
+│   └── workflows/
+├── .gitattributes
 ├── .gitignore
 └── README.md
 ```
 
 ---
 
-## Main Technologies
+# Main Technologies
 
-### Backend
+## Backend
 
-- Python
+- Python 3.13
 - FastAPI
 - PostgreSQL
 - asyncpg
 - PyTorch
 - torchvision
 - Pillow
+- OpenCV Headless
 - Google Gemini API
 - Meta WhatsApp Cloud API
 
-### Frontend
+## Computer Vision
+
+- EfficientNet-B0
+- MobileNetV3-Large
+- MobileNetV3-Small
+- Grad-CAM
+- Image-quality validation
+- Multi-image aggregation
+
+## Frontend
 
 - Next.js
 - TypeScript
@@ -180,7 +444,21 @@ Kilimo/
 - shadcn/ui
 - Recharts
 
-### Development and Testing
+## Authentication and Database
+
+- Supabase PostgreSQL
+- Supabase Auth
+- Google OAuth
+- TOTP MFA
+
+## Deployment
+
+- Microsoft Azure App Service
+- Vercel
+- GitHub Actions
+- Git LFS
+
+## Testing and Development
 
 - pytest
 - pytest-asyncio
@@ -192,47 +470,70 @@ Kilimo/
 
 ---
 
-## Backend Setup
+# Backend Setup
 
-### 1. Navigate to the Backend
+## 1. Clone the Repository
+
+```bash
+git clone https://github.com/Mutinda-Mark/Kilimo.git
+cd Kilimo
+```
+
+Because model checkpoints are managed using Git LFS, ensure Git LFS is installed before retrieving the model files.
+
+```bash
+git lfs install
+git lfs pull
+```
+
+---
+
+## 2. Navigate to the Backend
 
 ```bash
 cd backend
 ```
 
-### 2. Create a Python Virtual Environment
+---
+
+## 3. Create a Virtual Environment
 
 ```bash
 python -m venv .venv
 ```
 
-### 3. Activate the Virtual Environment
-
-#### Windows PowerShell
+### Windows PowerShell
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-#### Windows Command Prompt
+### Windows Command Prompt
 
 ```cmd
 .venv\Scripts\activate
 ```
 
-#### Linux / macOS
+### Linux / macOS
 
 ```bash
 source .venv/bin/activate
 ```
 
-### 4. Install Dependencies
+---
+
+## 4. Install Dependencies
 
 ```bash
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 5. Create the Environment File
+The project uses CPU-compatible PyTorch packages for server deployment.
+
+---
+
+# Environment Configuration
 
 Copy:
 
@@ -246,30 +547,30 @@ to:
 .env
 ```
 
-On Windows PowerShell:
+### Windows PowerShell
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-On Linux or macOS:
+### Linux / macOS
 
 ```bash
 cp .env.example .env
 ```
 
-Then fill in the required environment variables.
+Then configure the required environment variables.
 
-> **Important:** Never commit the `.env` file or real credentials to Git.
+Do not commit real credentials.
 
 ---
 
-## Required Backend Environment Variables
+# Main Backend Environment Variables
 
-The backend requires configuration similar to the following:
+The backend uses environment variables including:
 
 ```env
-DATABASE_URL=postgresql://username:password@localhost:5432/database_name
+DATABASE_URL=
 
 GEMINI_API_KEY=
 
@@ -277,95 +578,122 @@ WHATSAPP_ACCESS_TOKEN=
 WHATSAPP_PHONE_NUMBER_ID=
 WHATSAPP_VERIFY_TOKEN=
 WHATSAPP_APP_SECRET=
-WHATSAPP_API_VERSION=
 
 ADMIN_API_TOKEN=
+
+ENVIRONMENT=development
 ```
 
-Real secrets must never be committed to Git or included in public documentation.
+Additional configuration may be documented in:
+
+```text
+backend/.env.example
+```
+
+The example environment file should be treated as the authoritative list of required backend configuration variables.
 
 ---
 
-## PostgreSQL
+# Database
 
-KILIMO uses PostgreSQL for storing application data including:
+KILIMO uses PostgreSQL for persistent application data.
+
+Stored information includes:
 
 - Farmer sessions
 - Conversation history
 - Disease assessments
-- WhatsApp message processing records
+- WhatsApp message-processing records
+- Multi-image assessment batches
+- Accepted batch images
 - Disease information
 - Knowledge documents
 - Retrieval chunks
-- System activity records
+- Administrative records
 
-Main database tables include:
+Important logical data areas include:
 
 ```text
 sessions
 conversation_history
 assessments
 whatsapp_messages
+whatsapp_assessment_batches
+whatsapp_batch_images
 disease_info
 documents
 chunks
+admin_users
 ```
 
-The PostgreSQL database must be running and accessible before starting the backend application.
+The configured PostgreSQL database must be accessible before the application starts.
 
 ---
 
-## Model Weights
+# Model Weights
 
-The trained EfficientNet-B0 model weights are expected at:
+Production model checkpoints are managed using **Git LFS**.
+
+The main model paths include:
 
 ```text
 backend/cv/weights/best_model.pt
+backend/cv/weights/tomato_subject_validator.pt
 ```
 
-The weights are intentionally excluded from Git because trained model files may be large and should be managed separately.
+The model files must contain the actual binary checkpoints rather than Git LFS pointer files.
 
-The deployment or development environment must therefore supply the trained model file before image prediction can be performed.
+If required, retrieve them using:
+
+```bash
+git lfs pull
+```
 
 ---
 
-## Start the Backend
+# Start the Backend Locally
 
-From the `backend` directory, run:
+From:
 
-```bash
-uvicorn app.main:app --reload
+```text
+backend/
 ```
 
-The API will normally be available at:
+run:
+
+```bash
+python -m uvicorn app.main:app --reload
+```
+
+The local service normally starts at:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-Useful development endpoints include:
+The health endpoint is:
 
 ```text
-/
- /health
- /predict
- /chat
- /webhook/whatsapp
+/health
 ```
-
-Administrative endpoints are available under:
-
-```text
-/admin/
-```
-
-Administrative routes require a valid administrative bearer token.
 
 ---
 
-## Admin Dashboard Setup
+# Production Endpoint Behaviour
 
-Navigate to the dashboard directory:
+Production deployment is intentionally more restrictive than local development.
+
+Administrative routes are protected.
+
+Development-oriented public prediction and chat endpoints are disabled or restricted in the production environment.
+
+The minimal health endpoint remains available for service monitoring.
+
+---
+
+# Admin Dashboard Setup
+
+Navigate to:
 
 ```bash
 cd admin-dashboard
@@ -383,32 +711,38 @@ Create:
 .env.local
 ```
 
-using:
+from:
 
 ```text
 .env.local.example
 ```
 
-Example configuration:
+Example server-side configuration includes:
 
 ```env
 KILIMO_API_URL=http://127.0.0.1:8000
 KILIMO_ADMIN_TOKEN=
 ```
 
-The administrative token must match the `ADMIN_API_TOKEN` configured in the backend.
+Supabase browser/server configuration is also required for administrator authentication.
+
+Refer to:
+
+```text
+.env.local.example
+```
+
+for the authoritative variable names.
 
 ---
 
-## Start the Admin Dashboard
-
-Run:
+# Start the Admin Dashboard
 
 ```bash
 npm run dev
 ```
 
-The dashboard will normally be available at:
+The dashboard normally starts at:
 
 ```text
 http://localhost:3000
@@ -416,183 +750,161 @@ http://localhost:3000
 
 ---
 
-## Admin Dashboard Features
+# Administrator Authentication
 
-The administrative dashboard currently provides:
+The administrative dashboard uses:
 
-- System overview
-- Farmer session monitoring
-- Conversation history
-- Disease assessment records
-- Individual assessment details
-- Disease distribution statistics
-- Severity statistics
-- Assessment activity analytics
-- Data source statistics
-- WhatsApp processing status
-- Database monitoring
-- Model information
+```text
+Google OAuth
+      |
+      v
+Supabase Auth
+      |
+      v
+TOTP MFA
+      |
+      v
+AAL2 Session
+      |
+      v
+Admin Registry Check
+      |
+      v
+Protected Dashboard
+```
+
+An authenticated Google account alone does not automatically grant dashboard access.
+
+The user must also:
+
+- Complete TOTP MFA
+- Reach AAL2
+- Exist in the administrator registry
+- Be active and authorised
 
 ---
 
-## WhatsApp Integration
+# Admin Dashboard Features
+
+The dashboard includes:
+
+- Overview
+- Farmer sessions
+- Conversation history
+- Assessment records
+- Individual assessment details
+- Model probability information
+- Disease distribution analytics
+- Severity distribution analytics
+- Assessment activity
+- Source statistics
+- WhatsApp processing information
+- Database status
+- Model status
+- Global search
+- Operational notifications
+- Administrator profile
+- Theme settings
+- Manual refresh
+- Error handling
+
+---
+
+# WhatsApp Integration
 
 KILIMO integrates with the **Meta WhatsApp Cloud API**.
 
-The current WhatsApp processing workflow is:
+The processing workflow is:
 
 ```text
-WhatsApp Message
-      |
-      v
-Meta WhatsApp Cloud API
-      |
-      v
-FastAPI Webhook
-      |
-      v
-Message ID Validation
-      |
-      v
-Database Duplicate Check
-      |
-      v
+Incoming Meta Webhook
+        |
+        v
+Signature Verification
+        |
+        v
+Message ID Claim
+        |
+        v
+Duplicate Protection
+        |
+        v
+Immediate HTTP Acknowledgement
+        |
+        v
 Background Processing
-      |
-      +------------------+
-      |                  |
-      v                  v
-Text Processing       Image Processing
-      |                  |
-      v                  v
-NLP / RAG          CV Assessment
-      |                  |
-      +--------+---------+
-               |
-               v
-       WhatsApp Response
+        |
+        +---------------------+
+        |                     |
+        v                     v
+Text Message              Image Message
+        |                     |
+        v                     v
+Chat / RAG             Quality Validation
+                              |
+                              v
+                       Subject Validation
+                              |
+                              v
+                       Assessment Batch
+                              |
+                              v
+                      Disease Assessment
+                              |
+                              v
+                         Aggregation
+        |                     |
+        +----------+----------+
+                   |
+                   v
+            Farmer Response
 ```
 
-Incoming Meta message IDs are stored in the database to prevent the same message from being processed more than once.
-
-This duplicate-message protection helps prevent repeated advisory responses when webhook events are delivered multiple times.
+Database-backed message claiming protects against duplicate webhook processing.
 
 ---
 
-## Computer Vision Pipeline
+# WhatsApp Security
 
-The computer vision pipeline performs several stages of image analysis.
+Incoming Meta webhook requests are validated using the configured WhatsApp application secret.
 
-A simplified workflow is:
+Webhook signature verification helps ensure that incoming requests originate from the expected Meta integration.
+
+Sensitive values such as:
 
 ```text
-Farmer Image
-     |
-     v
-Image Validation
-     |
-     v
-Image Preprocessing
-     |
-     v
-EfficientNet-B0
-     |
-     v
-Disease Classification
-     |
-     v
-Grad-CAM
-     |
-     v
-Severity Estimation
-     |
-     v
-Assessment Result
+WHATSAPP_ACCESS_TOKEN
+WHATSAPP_APP_SECRET
+WHATSAPP_VERIFY_TOKEN
 ```
 
-The image assessment may include:
-
-- Predicted disease class
-- Prediction confidence
-- Grad-CAM visualization information
-- Estimated severity
-- Structured disease information
-- Recommended farmer actions
+must never be committed to Git.
 
 ---
 
-## Disease Severity Estimation
+# API Security
 
-Disease severity is estimated using image analysis and Grad-CAM-related heuristics.
+The backend includes production security controls such as:
 
-The severity component helps provide farmers with an approximate indication of how significant the detected symptoms appear within the submitted image.
+- WhatsApp webhook signature validation
+- Administrative bearer authentication
+- Rate limiting
+- Upload-size restrictions
+- Generic external error messages
+- Production environment validation
+- Restricted development endpoints
+- Safe application logging
+- Server-side administrative credentials
 
-Severity estimation should be interpreted as an advisory estimate rather than a laboratory-confirmed measurement.
-
----
-
-## RAG and Natural Language Advisory
-
-The advisory pipeline combines:
-
-- Structured disease information
-- Semantic retrieval
-- Farmer question context
-- Previous assessment context
-- Recent conversation history
-- Google Gemini response generation
-
-The purpose of the RAG pipeline is to generate contextual responses grounded in available agricultural knowledge.
-
-This allows a farmer to ask follow-up questions such as:
-
-```text
-What should I do about it?
-
-How can I prevent it from spreading?
-
-Is the condition serious?
-
-What treatment should I use?
-
-Can it affect the rest of my tomatoes?
-```
-
-The farmer does not need to repeat the disease name after every message because previous assessment and conversation context can be retrieved from the active session.
+The administrative API token is not exposed to browser-side JavaScript.
 
 ---
 
-## Farmer Conversation Flow
+# Testing
 
-A typical interaction may look like:
+## Backend
 
-```text
-Farmer:
-[Uploads tomato leaf image]
-
-KILIMO:
-The image appears most consistent with Early Blight.
-Estimated severity: Moderate.
-
-Recommended action:
-Remove heavily affected leaves, avoid overhead watering,
-and monitor nearby plants for additional symptoms.
-
-Farmer:
-How can I prevent it from spreading?
-
-KILIMO:
-Provides a contextual response using the previous
-Early Blight assessment and retrieved advisory knowledge.
-```
-
----
-
-## Testing
-
-### Backend Tests
-
-Navigate to the backend:
+Navigate to:
 
 ```bash
 cd backend
@@ -601,219 +913,360 @@ cd backend
 Run:
 
 ```bash
-pytest -v
+pytest -q --tb=short
 ```
 
-The automated test suite covers areas including:
+Final regression status:
 
-- API health checks
-- Image validation
+```text
+166 passed
+3 non-failing warnings
+```
+
+The test suite covers areas including:
+
+- API behaviour
+- Image quality validation
+- Subject validation
 - Disease prediction
 - Severity processing
-- Advisory generation
-- RAG retrieval
-- Farmer session handling
-- Conversation flow
+- Image compression
+- Multi-image aggregation
+- Multi-image WhatsApp workflow
+- Session management
+- Conversation history
+- RAG behaviour
 - Failure handling
-- WhatsApp webhook processing
-- Duplicate message protection
+- Duplicate webhook protection
+- WhatsApp signature verification
+- Upload limits
+- Rate limiting
+- Administrative authentication
+- Production configuration
+- Production API restrictions
+- Database batch handling
+- Model checkpoint validation
 
 ---
 
-## Frontend Quality Checks
+# Frontend Quality Checks
 
-Navigate to the admin dashboard:
+Navigate to:
 
 ```bash
 cd admin-dashboard
 ```
 
-Run linting:
+Run:
 
 ```bash
 npm run lint
 ```
 
-Then create a production build:
+Then:
 
 ```bash
 npm run build
 ```
 
-The production build helps verify:
+The production build validates:
 
 - TypeScript compilation
-- ESLint checks
+- ESLint rules
 - Next.js route generation
-- Partial prerendering
+- Application bundling
 - Production compatibility
 
 ---
 
-## Security and Secret Handling
+# Production Deployment
 
-The following are intentionally excluded from version control:
+## Backend
 
-- `.env`
-- `.env.local`
-- API credentials
-- WhatsApp access tokens
-- Gemini API keys
-- Administrative API tokens
-- PostgreSQL passwords
-- Model weight files
-- Private keys
-- Python virtual environments
-- Node.js dependencies
-- Next.js build output
-
-Example environment files contain placeholders only.
-
-Sensitive credentials should never be added directly to source code or committed to the Git repository.
-
----
-
-## Known Current Limitations
-
-The current prototype has several limitations:
-
-- Disease classification performance depends on the representativeness of the training dataset.
-- Real-world farmer images may differ significantly from controlled dataset images.
-- Lighting, camera quality, leaf orientation, background clutter, and disease stage may affect predictions.
-- Severity estimation is based on image and Grad-CAM heuristics and is not a laboratory-confirmed measurement.
-- The system currently focuses only on tomato-related conditions.
-- Internet connectivity is required for WhatsApp communication and external AI services.
-- The advisory knowledge base may not cover every local farming condition.
-- Natural language responses depend on the quality of retrieved knowledge and available conversational context.
-- The system is intended as a farmer-support tool and does not replace qualified agricultural experts.
-- Final production deployment and comprehensive field evaluation are still in progress.
-
----
-
-## Current Development Status
-
-### Completed
-
-- [x] Computer vision model
-- [x] Disease classification
-- [x] EfficientNet-B0 transfer learning
-- [x] Grad-CAM processing
-- [x] Severity estimation
-- [x] Structured advisory generation
-- [x] RAG pipeline
-- [x] Contextual chat
-- [x] PostgreSQL session management
-- [x] Assessment persistence
-- [x] Conversation persistence
-- [x] WhatsApp integration
-- [x] Duplicate message protection
-- [x] Admin API
-- [x] Admin dashboard
-- [x] Automated backend testing
-- [x] Frontend linting
-- [x] Production build validation
-
-### In Progress
-
-- [ ] Security hardening
-- [ ] Final model evaluation
-- [ ] Production deployment
-- [ ] Usability evaluation
-- [ ] Final documentation
-- [ ] End-to-end acceptance testing
-
----
-
-## Git Workflow
-
-Development is maintained using **Git** and **GitHub**.
-
-The current repository baseline was created after the initial local prototype had already been implemented.
-
-Changes from this point onward should be committed using clear and meaningful commit messages.
-
-Examples:
+The FastAPI backend is deployed to:
 
 ```text
-Add webhook signature verification
-
-Add final model evaluation results
-
-Harden session history access
-
-Add production deployment configuration
-
-Update Chapter 5 implementation evidence
+Microsoft Azure App Service
 ```
+
+The production application runs as a Linux/Python service using a single Uvicorn worker.
+
+The single-worker configuration avoids unnecessary duplication of machine-learning models in memory and is compatible with the current process-local application controls.
+
+---
+
+## Dashboard
+
+The administrative dashboard is deployed through:
+
+```text
+Vercel
+```
+
+The dashboard communicates with the Azure-hosted backend through server-side configuration.
+
+---
+
+# Continuous Deployment
+
+Backend CI/CD is implemented using **GitHub Actions**.
+
+The stable deployment flow is:
+
+```text
+Push to main
+     |
+     v
+GitHub Actions
+     |
+     v
+Build
+     |
+     v
+Git LFS Model Retrieval
+     |
+     v
+Azure Authentication using OIDC
+     |
+     v
+Deploy to Azure App Service
+```
+
+Azure authentication uses OpenID Connect federation rather than a long-lived Azure password stored in the repository.
+
+---
+
+# Git Workflow
+
+The stable project branch is:
+
+```text
+main
+```
+
+Sprint and feature work may be developed in separate branches and merged into `main` after testing.
 
 A typical workflow is:
 
 ```bash
 git status
-
 git add .
-
 git commit -m "Describe the implemented change"
-
 git push
 ```
 
----
-
-## Project Documentation
-
-The academic project documentation covers:
-
-1. Project background
-2. Problem statement
-3. Project objectives
-4. Literature review
-5. Research and development methodology
-6. System analysis and design
-7. System implementation
-8. Testing and evaluation
-9. Conclusions and recommendations
-
-Implementation documentation is being maintained alongside system development so that claims in the academic report can be supported by actual source code, test results, screenshots, model results, and system evidence.
+Meaningful commit messages should describe the actual change implemented.
 
 ---
 
-## Responsible AI Use
+# Deployment Verification
 
-AI-assisted tools may be used during development for activities such as:
+After deployment, the system should be verified using:
+
+```text
+Azure health endpoint
+WhatsApp text interaction
+Single-image assessment
+Multi-image assessment
+Unsupported-image rejection
+Poor-quality image rejection
+Admin dashboard
+Database status
+Model status
+GitHub Actions deployment status
+```
+
+During final acceptance testing, the complete deployed workflow operated successfully across:
+
+```text
+WhatsApp
+→ Meta
+→ Azure
+→ AI pipeline
+→ PostgreSQL
+→ Gemini
+→ WhatsApp
+
+and
+
+Administrator
+→ Vercel
+→ Azure Admin API
+→ PostgreSQL
+```
+
+Under warmed deployment conditions, a typical image interaction produced a farmer-facing response in approximately:
+
+```text
+7 seconds
+```
+
+This is an observed acceptance-test result rather than a guaranteed service-level response time.
+
+---
+
+# Current Development Status
+
+## Completed
+
+- [x] Tomato disease dataset preparation
+- [x] EfficientNet-B0 disease classifier
+- [x] MobileNetV3-Large comparison model
+- [x] Held-out model evaluation
+- [x] Grad-CAM processing
+- [x] Severity estimation
+- [x] Technical image-quality validation
+- [x] MobileNetV3-Small tomato subject validator
+- [x] Subject-validator threshold evaluation
+- [x] Multi-image assessment
+- [x] Prediction aggregation and abstention
+- [x] `DONE` batch finalisation
+- [x] Stale-batch recovery
+- [x] Structured advisory generation
+- [x] Retrieval-Augmented Generation
+- [x] Context-aware farmer chat
+- [x] PostgreSQL session management
+- [x] Assessment persistence
+- [x] Conversation persistence
+- [x] WhatsApp integration
+- [x] Duplicate message protection
+- [x] Webhook signature verification
+- [x] API rate limiting
+- [x] Upload controls
+- [x] Production endpoint restrictions
+- [x] Admin API
+- [x] Google OAuth authentication
+- [x] TOTP MFA
+- [x] Administrator registry authorization
+- [x] Administrative dashboard
+- [x] Automated backend testing
+- [x] Frontend linting
+- [x] Frontend production build
+- [x] Git LFS model management
+- [x] GitHub Actions CI/CD
+- [x] Azure backend deployment
+- [x] Vercel dashboard deployment
+- [x] End-to-end acceptance testing
+- [x] Production deployment validation
+
+## Remaining Evaluation Work
+
+- [ ] Formal usability study with representative tomato farmers
+- [ ] Larger-scale field evaluation
+- [ ] Long-term operational monitoring
+- [ ] Large-scale load and concurrency testing
+
+---
+
+# Known Limitations
+
+KILIMO has several important limitations.
+
+- Disease-model performance depends on the representativeness of the training and evaluation datasets.
+- Real farmer images may differ substantially from dataset images.
+- Lighting, background, camera quality, leaf orientation and disease stage may affect predictions.
+- High held-out accuracy does not guarantee equivalent performance on independently collected Kenyan farm images.
+- Disease severity is based on Grad-CAM and image-processing heuristics rather than laboratory-validated severity measurement.
+- The tomato subject validator cannot guarantee perfect rejection of every unsupported image.
+- Multi-image prediction agreement does not guarantee biological correctness.
+- The system currently supports tomato conditions only.
+- Internet connectivity is required.
+- WhatsApp functionality depends on Meta services.
+- Natural-language generation depends on Gemini availability.
+- Backend hosting depends on Azure.
+- Dashboard hosting depends on Vercel.
+- Database and authentication services depend on Supabase.
+- The agricultural knowledge base may not cover every local farming scenario.
+- Formal farmer usability testing remains limited.
+- KILIMO is intended as a decision-support tool and does not replace qualified agricultural professionals.
+
+---
+
+# Security and Secret Handling
+
+The following must never be committed to the repository:
+
+- `.env`
+- `.env.local`
+- Database passwords
+- Gemini API keys
+- WhatsApp access tokens
+- WhatsApp application secrets
+- Administrative bearer tokens
+- OAuth secrets
+- Private keys
+- Other production credentials
+
+Example environment files should contain placeholders only.
+
+Model checkpoints are different from secrets and are managed through **Git LFS**.
+
+---
+
+# Responsible AI Use
+
+AI-assisted tools were used during selected development activities such as:
 
 - Code review
 - Debugging
 - Test refinement
+- Deployment troubleshooting
 - Documentation drafting
+- Technical explanation
 - Language improvement
-- Explanations of technical concepts
 
-Any material produced with AI assistance should be reviewed against:
+AI-generated suggestions were reviewed against:
 
-- The actual project source code
-- Test results
-- Model evaluation results
-- Database evidence
+- Actual source code
+- Automated test results
+- Model evaluation output
+- Application logs
+- Database behaviour
+- Deployment evidence
 - System screenshots
 - Project requirements
-- Credible academic and technical references
 
-The student remains responsible for the final implementation, analysis, interpretation, documentation, and submitted work.
+Experimental values and final system results were obtained from the project artefacts and execution evidence rather than generated by AI tools.
 
----
-
-## Disclaimer
-
-KILIMO is designed as an agricultural decision-support and farmer advisory system.
-
-Predictions and recommendations produced by the system should be treated as advisory information rather than a guaranteed diagnosis.
-
-Where symptoms are severe, unusual, uncertain, or economically significant, farmers should seek assistance from qualified agricultural extension officers, agronomists, plant pathologists, or other relevant agricultural professionals.
+The student remains responsible for the final implementation, evaluation, interpretation and documentation.
 
 ---
 
-## Author
+# Disclaimer
+
+KILIMO is an agricultural decision-support and farmer advisory system.
+
+Disease predictions, severity estimates and advisory responses should be treated as supporting information rather than guaranteed diagnoses.
+
+Where symptoms are severe, unusual, uncertain or economically significant, farmers should seek assistance from qualified agricultural extension officers, agronomists, plant pathologists or other relevant agricultural professionals.
+
+---
+
+# Academic Documentation
+
+The project documentation covers:
+
+1. Introduction and project background
+2. Literature review
+3. Methodology
+4. System analysis and design
+5. System implementation, testing and evaluation
+6. Conclusions and recommendations
+
+Implementation claims are supported using:
+
+- Source code
+- Git history
+- Automated test results
+- Model evaluation results
+- Deployment logs
+- Screenshots
+- Database evidence
+- Acceptance testing
+
+---
+
+# Author
 
 **Mutuku Mark Mutinda**  
 BSc Informatics and Computer Science  
@@ -821,13 +1274,13 @@ Strathmore University
 
 ---
 
-## Supervisor
+# Supervisor
 
 **Mr. Daniel Machanje**
 
 ---
 
-## Project
+# Project
 
 **KILIMO — Tomato Disease Detection and Farmer Advisory System**
 
